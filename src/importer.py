@@ -4,6 +4,13 @@ import sqlite3
 import fastexcel
 from src.database import get_db_path
 
+def ensure_accounts_exist(conn, accounts_set):
+    """Crée les comptes dans la table accounts s'ils n'existent pas"""
+    cursor = conn.cursor()
+    for acc in accounts_set:
+        if acc:
+            cursor.execute("INSERT OR IGNORE INTO accounts (name, type, initial_balance) VALUES (?, 'CASH', 0.0)", (acc,))
+
 def generate_id():
     return str(uuid.uuid4())
 
@@ -76,6 +83,9 @@ def process_sheet(df, type_import, conn):
             (id, date, category, account, amount, currency, comment, type, is_excluded)
             VALUES (:id, :date, :category, :account, :amount, :currency, :comment, :type, :is_excluded)
         """, rows)
+        
+        accounts = set(clean_df["account"].unique().to_list())
+        ensure_accounts_exist(conn, accounts)
 
     elif type_import == 'Transferts':
         clean_df = df.select([
@@ -96,6 +106,9 @@ def process_sheet(df, type_import, conn):
             (id, date, source_account, target_account, amount, comment)
             VALUES (:id, :date, :source_account, :target_account, :amount, :comment)
         """, rows)
+        sources = set(clean_df["source_account"].unique().to_list())
+        targets = set(clean_df["target_account"].unique().to_list())
+        ensure_accounts_exist(conn, sources.union(targets))
     
     return len(rows)
 

@@ -9,8 +9,16 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    # 1. Transactions (Revenus & Dépenses)
-    # We add 'is_excluded' for your checkbox feature
+    # 1. Accounts (Pour définir le solde de départ, ex: Livret A a 10k€ au début)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS accounts (
+        name TEXT PRIMARY KEY,
+        type TEXT, -- 'CASH', 'INVEST'
+        initial_balance REAL DEFAULT 0.0
+    )
+    """)
+
+    # 2. Transactions (Revenus & Dépenses)
     c.execute("""
     CREATE TABLE IF NOT EXISTS transactions (
         id TEXT PRIMARY KEY,
@@ -25,7 +33,7 @@ def init_db():
     )
     """)
     
-    # 2. Transfers
+    # 3. Transfers
     c.execute("""
     CREATE TABLE IF NOT EXISTS transfers (
         id TEXT PRIMARY KEY,
@@ -37,13 +45,15 @@ def init_db():
     )
     """)
 
-    # 3. Investments (Portefeuille) - For future use based on your requirements
+    # 4. Investments (Portefeuille)
+    # Mise à jour avec tes champs demandés
     c.execute("""
     CREATE TABLE IF NOT EXISTS investments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT PRIMARY KEY,
         date DATE,
         ticker TEXT,
-        action TEXT, -- BUY / SELL
+        name TEXT, -- Titre du produit
+        action TEXT, -- 'BUY' or 'SELL'
         quantity REAL,
         unit_price REAL,
         fees REAL,
