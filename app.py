@@ -254,12 +254,91 @@ elif page == "Tableau de Bord":
                 st.info("Aucune dépense sur cette période.")
         
         with col_charts_2:
-            st.subheader("Évolution Mensuelle")
-            monthly = df_filtered.group_by([pl.col("date").dt.month().alias("month"), "type"]).agg(pl.col("amount").sum()).sort("month")
-            if not monthly.is_empty():
-                fig_bar = px.bar(monthly.to_pandas(), x="month", y="amount", color="type", barmode="group",
-                                 color_discrete_map={"INCOME": "#00CC96", "EXPENSE": "#EF553B"})
-                st.plotly_chart(fig_bar, use_container_width=True)
+            st.subheader("Évolution Mensuelle & Tendance")
+            
+            # 1. Préparation des données : Groupement par Mois-Année (et non juste par mois)
+            # On utilise dt.truncate("1mo") pour garder l'info de l'année (ex: 2023-01-01)
+            monthly_agg = (
+                df_filtered
+                .with_columns(pl.col("date").dt.truncate("1mo").alias("month_date"))
+                .group_by(["month_date", "type"])
+                .agg(pl.col("amount").sum())
+                .sort("month_date")
+            )
+            
+            if not monthly_agg.is_empty():
+                # 2. Pivot : Transformer les lignes INCOME/EXPENSE en colonnes
+                # Cela nous permet de manipuler les séries distinctement
+                df_pivot = monthly_agg.pivot(
+                    values="amount", 
+                    index="month_date", 
+                    columns="type", 
+                    aggregate_function="sum"
+                ).fill_null(0).sort("month_date")
+
+                # Sécurisation : Vérifier que les colonnes existent (si on a que des dépenses par ex)
+                if "INCOME" not in df_pivot.columns:
+                    df_pivot = df_pivot.with_columns(pl.lit(0.0).alias("INCOME"))
+                if "EXPENSE" not in df_pivot.columns:
+                    df_pivot = df_pivot.with_columns(pl.lit(0.0).alias("EXPENSE"))
+
+                # 3. Calcul de la Moyenne Mobile (Ex: Moyenne des dépenses sur 3 mois)
+                # Cela crée la courbe de tendance
+                df_pivot = df_pivot.with_columns(
+                    pl.col("EXPENSE").rolling_mean(window_size=3).alias("ma_expense")
+                )
+
+                # Conversion en Pandas pour Plotly
+                pdf_viz = df_pivot.to_pandas()
+
+                # 4. Construction du Graphique avancé (Graph Objects)
+                fig_combo = go.Figure()
+
+                # Barres des Revenus
+                fig_combo.add_trace(go.Bar(
+                    x=pdf_viz["month_date"], 
+                    y=pdf_viz["INCOME"],
+                    name="Revenus",
+                    marker_color="#00CC96"
+                ))
+
+                # Barres des Dépenses
+                fig_combo.add_trace(go.Bar(
+                    x=pdf_viz["month_date"], 
+                    y=pdf_viz["EXPENSE"],
+                    name="Dépenses",
+                    marker_color="#EF553B"
+                ))
+
+                # Ligne de Tendance (Moyenne Mobile Dépenses)
+                fig_combo.add_trace(go.Scatter(
+                    x=pdf_viz["month_date"], 
+                    y=pdf_viz["ma_expense"],
+                    mode='lines',
+                    name="Moyenne Dépenses (3 mois)",
+                    line=dict(color='#172B4D', width=3, dash='dot') # Bleu foncé, pointillé
+                ))
+
+                # 5. Configuration du Layout pour forcer l'affichage de tous les mois
+                fig_combo.update_layout(
+                    barmode='group', # Barres côte à côte
+                    xaxis=dict(
+                        tickformat="%b %y", # Format : Jan 24
+                        dtick="M1",         # Force un tick par mois
+                        tickangle=-45       # Inclinaison pour lisibilité
+                    ),
+                    legend=dict(
+                        orientation="h",    # Légende horizontale en bas
+                        yanchor="bottom", y=1.02,
+                        xanchor="right", x=1
+                    ),
+                    margin=dict(t=20, b=40, l=20, r=20),
+                    height=450
+                )
+
+                st.plotly_chart(fig_combo, use_container_width=True)
+            else:
+                st.info("Pas de données sur la période sélectionnée.")
 
 # --- PAGE 3: PATRIMOINE & INVEST ---
 elif page == "Patrimoine & Bourse":
