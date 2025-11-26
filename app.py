@@ -371,57 +371,148 @@ elif page == "Patrimoine & Bourse":
 
     st.divider()
     
+    # --- 1. CALCUL DES DONNÉES (FULL HISTORY) ---
     with st.spinner("Calcul de l'évolution du patrimoine..."):
         df_wealth = calculate_wealth_evolution()
     
     if df_wealth.is_empty():
         st.info("Pas assez de données pour générer le graphique.")
+    
     else:
-        st.subheader("Evolution Globale")
-        pdf_wealth = df_wealth.to_pandas()
+        # --- GESTION DES DATES (COPIE EXACTE DU DASHBOARD) ---
         
-        fig = go.Figure()
-        
-        chart_mode = st.radio("Vue", ["Total (Ligne)", "Détail (Empilé)"], horizontal=True)
-        
-        if chart_mode == "Total (Ligne)":
-            fig.add_trace(go.Scatter(x=pdf_wealth['date'], y=pdf_wealth['Total Wealth'], 
-                                     mode='lines', name='Total Net Worth',
-                                     line=dict(color='#636EFA', width=3)))
-            fig.update_layout(title="Patrimoine Net Total")
-            
-        else:
-            cols = [c for c in pdf_wealth.columns if c not in ['date', 'Total Wealth', 'Total Invest']]
-            for c in cols:
-                fig.add_trace(go.Scatter(
-                    x=pdf_wealth['date'], y=pdf_wealth[c],
-                    mode='lines', stackgroup='one', name=c
-                ))
-            if "Total Invest" in pdf_wealth.columns:
-                 fig.add_trace(go.Scatter(
-                    x=pdf_wealth['date'], y=pdf_wealth["Total Invest"],
-                    mode='lines', name='Actions (Val.)',
-                    line=dict(color='gold', width=2, dash='dash')
-                ))
+        # 1. Initialisation des clés spécifiques à cette page
+        if "wealth_start" not in st.session_state:
+            st.session_state["wealth_start"] = df_wealth["date"].min() # Par défaut : tout l'historique
+        if "wealth_end" not in st.session_state:
+            st.session_state["wealth_end"] = date.today()
 
-        fig.update_layout(
-            hovermode="x unified",
-            xaxis=dict(
-                rangeselector=dict(
-                    buttons=list([
-                        dict(count=1, label="1m", step="month", stepmode="backward"),
-                        dict(count=6, label="6m", step="month", stepmode="backward"),
-                        dict(count=1, label="YTD", step="year", stepmode="todate"),
-                        dict(count=1, label="1y", step="year", stepmode="backward"),
-                        dict(step="all")
-                    ])
-                ),
-                rangeslider=dict(visible=True),
-                type="date"
-            ),
-            yaxis=dict(title="Valeur (€)")
+        # 2. Fonction de Callback pour synchroniser
+        def update_wealth_range(days=None, start=None, end=None):
+            target_end = end if end else date.today()
+            target_start = start if start else (target_end - timedelta(days=days) if days else target_end)
+            
+            st.session_state["wealth_start"] = target_start
+            st.session_state["wealth_end"] = target_end
+
+        # 3. Interface UI (Layout identique au Dashboard)
+        with st.container():
+            st.subheader("📅 Période d'analyse")
+            
+            col_shortcuts, col_pickers = st.columns([3, 2], gap="large")
+            
+            with col_shortcuts:
+                st.caption("Raccourcis rapides")
+                # Ligne 1 : Périodes glissantes
+                b1, b2, b3, b4 = st.columns(4)
+                if b1.button("1 Mois", key="w_1m", use_container_width=True):
+                    update_wealth_range(days=30)
+                if b2.button("6 Mois", key="w_6m", use_container_width=True):
+                    update_wealth_range(days=180) # Adapté pour le patrimoine (plus long terme)
+                if b3.button("YTD", key="w_ytd", use_container_width=True):
+                    update_wealth_range(start=date(date.today().year, 1, 1))
+                if b4.button("Tout", key="w_all", use_container_width=True):
+                    update_wealth_range(start=df_wealth["date"].min())
+
+                # Ligne 2 : Années spécifiques (Basées sur les données de richesse)
+                # On extrait les années disponibles dans l'historique de patrimoine
+                years = sorted(df_wealth["date"].dt.year().unique().to_list(), reverse=True)
+                if years:
+                    st.write("") 
+                    cols_years = st.columns(len(years) + 2)
+                    for i, year in enumerate(years):
+                        if cols_years[i].button(str(year), key=f"w_year_{year}", use_container_width=True):
+                            update_wealth_range(start=date(year, 1, 1), end=date(year, 12, 31))
+
+            with col_pickers:
+                st.caption("Sélection manuelle")
+                c_start, c_end = st.columns(2)
+                # On lie les widgets aux clés de session définies plus haut
+                w_start = c_start.date_input("Début", key="wealth_start")
+                w_end = c_end.date_input("Fin", key="wealth_end")
+
+        # --- 4. FILTRAGE ---
+        df_viz = df_wealth.filter(
+            (pl.col("date") >= w_start) & 
+            (pl.col("date") <= w_end)
         )
-        st.plotly_chart(fig, use_container_width=True)
         
-        last_row = pdf_wealth.iloc[-1]
-        st.metric("Patrimoine Actuel", f"{last_row['Total Wealth']:,.2f} €")
+        if df_viz.is_empty():
+            st.warning("Aucune donnée sur cette période.")
+        else:
+            pdf_wealth = df_viz.to_pandas()
+            
+            # --- 5. CONFIGURATION ET GRAPHIQUE (Le reste inchangé) ---
+            st.write("---")
+            col_opts, col_metrics = st.columns([2, 1])
+            
+            # Identification des colonnes "Comptes"
+            excluded_cols = ['date', 'Total Wealth', 'Total Invest']
+            account_cols = [c for c in pdf_wealth.columns if c not in excluded_cols]
+            
+            with col_opts:
+                chart_mode = st.radio(
+                    "Mode d'affichage", 
+                    ["Global (Total)", "Détail (Empilé)", "Comparaison (Sélection)"], 
+                    horizontal=True
+                )
+                
+                selected_accounts = account_cols
+                if chart_mode == "Comparaison (Sélection)":
+                    selected_accounts = st.multiselect(
+                        "Sélectionnez les comptes à afficher", 
+                        account_cols, 
+                        default=account_cols[:3] if len(account_cols)>3 else account_cols
+                    )
+
+            with col_metrics:
+                last_val = pdf_wealth.iloc[-1]['Total Wealth']
+                first_val = pdf_wealth.iloc[0]['Total Wealth']
+                delta = last_val - first_val
+                st.metric("Patrimoine Fin de Période", f"{last_val:,.2f} €", delta=f"{delta:,.2f} €")
+
+            # --- GRAPHIQUE PLOTLY ---
+            fig = go.Figure()
+
+            if chart_mode == "Global (Total)":
+                fig.add_trace(go.Scatter(
+                    x=pdf_wealth['date'], y=pdf_wealth['Total Wealth'], 
+                    mode='lines', name='Patrimoine Net',
+                    line=dict(color='#636EFA', width=4),
+                    fill='tozeroy', fillcolor='rgba(99, 110, 250, 0.1)' 
+                ))
+                if "Total Invest" in pdf_wealth.columns:
+                    fig.add_trace(go.Scatter(
+                        x=pdf_wealth['date'], y=pdf_wealth['Total Invest'], 
+                        mode='lines', name='Dont Investissement',
+                        line=dict(color='gold', width=2, dash='dash')
+                    ))
+
+            elif chart_mode == "Détail (Empilé)":
+                for col in account_cols:
+                    fig.add_trace(go.Scatter(
+                        x=pdf_wealth['date'], y=pdf_wealth[col],
+                        mode='lines', stackgroup='one', name=col
+                    ))
+
+            elif chart_mode == "Comparaison (Sélection)":
+                if selected_accounts:
+                    for col in selected_accounts:
+                        fig.add_trace(go.Scatter(
+                            x=pdf_wealth['date'], y=pdf_wealth[col],
+                            mode='lines', name=col
+                        ))
+
+            fig.update_layout(
+                title=f"Évolution du {w_start.strftime('%d/%m/%Y')} au {w_end.strftime('%d/%m/%Y')}",
+                xaxis=dict(showgrid=False),
+                yaxis=dict(title="Valeur (€)", showgrid=True, gridcolor='lightgray'),
+                hovermode="x unified",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                height=700, # Hauteur demandée
+                margin=dict(l=20, r=20, t=60, b=40)
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+
+  
