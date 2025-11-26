@@ -214,10 +214,44 @@ elif page == "Tableau de Bord":
         with col_charts_1:
             st.subheader("Dépenses par Catégorie")
             df_exp = df_filtered.filter(pl.col("type") == "EXPENSE")
+            
             if not df_exp.is_empty():
+                # 1. Agrégation
                 grp = df_exp.group_by("category").agg(pl.col("amount").sum()).sort("amount", descending=True)
-                fig_pie = px.pie(grp.to_pandas(), values="amount", names="category", hole=0.4)
+                pdf_chart = grp.to_pandas()
+
+                # 2. Stratégie UX "Top N + Autres" pour éviter la surcharge
+                # Si on a plus de 7 catégories, on garde les 6 plus grosses et on groupe le reste
+                if len(pdf_chart) > 7:
+                    top_n = pdf_chart.iloc[:6].copy()
+                    others_value = pdf_chart.iloc[6:]['amount'].sum()
+                    others_df = pd.DataFrame([{'category': 'Autres', 'amount': others_value}])
+                    pdf_chart = pd.concat([top_n, others_df], ignore_index=True)
+
+                # 3. Création du graphique
+                fig_pie = px.pie(
+                    pdf_chart, 
+                    values="amount", 
+                    names="category", 
+                    hole=0.4,
+                    color_discrete_sequence=px.colors.qualitative.Pastel # Couleurs douces
+                )
+
+                # 4. Configuration avancée du texte
+                fig_pie.update_traces(
+                    textposition='outside', # Place le texte à l'extérieur pour voir la couleur
+                    textinfo='label+percent+value',
+                    # On utilise <br> pour sauter des lignes et <b> pour le gras
+                    # %{value:.0f} € -> Affiche la valeur arrondie avec le sigle €
+                    texttemplate='%{label}<br><b>%{value:,.0f} €</b><br>(%{percent})'
+                )
+                
+                # Suppression de la légende (car l'info est déjà sur le graph) pour gagner de la place
+                fig_pie.update_layout(showlegend=False, margin=dict(t=40, b=80, l=20, r=20), height=600)
+                
                 st.plotly_chart(fig_pie, use_container_width=True)
+            else:
+                st.info("Aucune dépense sur cette période.")
         
         with col_charts_2:
             st.subheader("Évolution Mensuelle")
