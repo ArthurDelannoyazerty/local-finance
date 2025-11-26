@@ -9,7 +9,7 @@ def ensure_accounts_exist(conn, accounts_set):
     cursor = conn.cursor()
     for acc in accounts_set:
         if acc:
-            cursor.execute("INSERT OR IGNORE INTO accounts (name, type, initial_balance) VALUES (?, 'CASH', 0.0)", (acc,))
+            cursor.execute("INSERT OR IGNORE INTO accounts (name, initial_balance) VALUES (?, 0.0)", (acc,))
 
 def generate_id():
     return str(uuid.uuid4())

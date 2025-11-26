@@ -10,7 +10,7 @@ from datetime import date, timedelta
 
 from src.database import init_db, get_db_path
 from src.importer import import_excel_file 
-from src.queries import get_transactions_df, update_exclusion
+from src.queries import get_transactions_df, update_exclusion, get_investments_df
 from src.engine import calculate_wealth_evolution
 
 # --- SETUP ---
@@ -44,7 +44,7 @@ page = st.session_state["current_page"]
 def get_accounts():
     conn = sqlite3.connect(get_db_path())
     try:
-        df = pl.read_database("SELECT * FROM accounts", conn)
+        df = pl.read_database("SELECT name, initial_balance FROM accounts", conn)
     except:
         df = pl.DataFrame()
     conn.close()
@@ -53,10 +53,14 @@ def get_accounts():
 def save_investment(date_inv, ticker, name, action, qty, price, fees, account, comment):
     conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
+    
+    # CORRECTION : Gestion du commentaire vide pour éviter l'erreur SQL
+    final_comment = comment if comment and comment.strip() != "" else ""
+
     c.execute("""
         INSERT INTO investments (id, date, ticker, name, action, quantity, unit_price, fees, account, comment)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (str(uuid.uuid4()), date_inv, ticker, name, action, qty, price, fees, account, comment))
+    """, (str(uuid.uuid4()), date_inv, ticker, name, action, qty, price, fees, account, final_comment))
     conn.commit()
     conn.close()
 
@@ -64,6 +68,14 @@ def update_account_initial(name, amount):
     conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
     c.execute("UPDATE accounts SET initial_balance = ? WHERE name = ?", (amount, name))
+    conn.commit()
+    conn.close()
+
+def create_new_account(name):
+    conn = sqlite3.connect(get_db_path())
+    c = conn.cursor()
+    # On crée le compte s'il n'existe pas
+    c.execute("INSERT OR IGNORE INTO accounts (name, initial_balance) VALUES (?, 0.0)", (name,))
     conn.commit()
     conn.close()
 
@@ -88,6 +100,25 @@ if page == "Import / Données":
     with tab2:
         st.subheader("Solde de départ des comptes")
         st.info("Indiquez le solde initial de chaque compte avant la première transaction importée.")
+
+        # --- AJOUT : FORMULAIRE DE CRÉATION ---
+        with st.expander("➕ Créer un nouveau compte manuellement"):
+            col_new_1, col_new_2 = st.columns([3, 1])
+            with col_new_1:
+                new_acc_name = st.text_input("Nom du nouveau compte", placeholder="ex: PEA Bourse Direct")
+            with col_new_2:
+                st.write("") # Espacement pour aligner le bouton
+                st.write("") 
+                if st.button("Créer le compte"):
+                    if new_acc_name.strip():
+                        create_new_account(new_acc_name.strip())
+                        st.success(f"Compte '{new_acc_name}' créé !")
+                        st.rerun() # Recharge la page pour mettre à jour la liste
+                    else:
+                        st.error("Le nom ne peut pas être vide.")
+        
+        st.divider()
+        # --------------------------------------
         
         df_acc = get_accounts()
         if not df_acc.is_empty():
@@ -306,39 +337,117 @@ elif page == "Tableau de Bord":
 elif page == "Patrimoine & Bourse":
     st.header("📈 Évolution du Patrimoine")
     
-    with st.expander("➕ Ajouter une transaction Bourse (Achat/Vente)"):
-        f1, f2, f3, f4 = st.columns(4)
-        with f1:
-            i_date = st.date_input("Date")
-            i_action = st.selectbox("Action", ["BUY", "SELL"])
-        with f2:
-            i_ticker = st.text_input("Ticker (ex: CW8.PA)", value="CW8.PA")
-            i_name = st.text_input("Nom du produit", value="Amundi MSCI World")
-        with f3:
-            i_qty = st.number_input("Quantité", min_value=0.01, step=1.0)
-            i_price = st.number_input("Prix Unitaire", min_value=0.01, step=0.1)
-        with f4:
-            acc_df = get_accounts()
-            accs = acc_df["name"].to_list() if not acc_df.is_empty() else ["Défaut"]
-            i_acc = st.selectbox("Compte", accs)
-            i_fees = st.number_input("Frais", min_value=0.0, step=0.1)
+    # 1. Préparation des données pour les menus déroulants
+    acc_df = get_accounts()
+    
+    # Configuration par défaut
+    account_options = []
+    accounts_ready = False
+    default_index = 0  # Par défaut, le premier de la liste
+    
+    if not acc_df.is_empty():
+        account_options = acc_df["name"].to_list()
+        accounts_ready = True
         
-        i_comm = st.text_input("Commentaire")
+        # --- AJOUT : LOGIQUE DE PRÉ-SÉLECTION ---
+        target_default = "PEA Bourse Direct" # Le nom exact que vous cherchez
+        if target_default in account_options:
+            default_index = account_options.index(target_default)
+        # ----------------------------------------
+    else:
+        account_options = ["⚠️ Aucun compte trouvé"]
+        accounts_ready = False
+
+    # 2. Formulaire d'ajout
+    with st.expander("➕ Ajouter une transaction Bourse (Achat/Vente)", expanded=False):
         
-        if st.button("Enregistrer Investissement"):
-            save_investment(i_date, i_ticker, i_name, i_action, i_qty, i_price, i_fees, i_acc, i_comm)
-            st.success("Transaction enregistrée !")
-            st.rerun()
+        # On utilise st.form pour éviter le rechargement à chaque clic
+        with st.form("invest_form"):
+            st.caption("Saisissez les détails de l'ordre exécuté.")
+            
+            f1, f2, f3, f4 = st.columns(4)
+            
+            with f1:
+                i_date = st.date_input("Date de l'exécution")
+                # Menu strict pour l'action
+                action_label = st.selectbox("Type d'opération", ["Achat (BUY)", "Vente (SELL)"])
+                # On traduit l'affichage en valeur DB
+                i_action = "BUY" if "Achat" in action_label else "SELL"
+                
+            with f2:
+                i_ticker = st.text_input("Ticker (ex: CW8.PA)", value="CW8.PA")
+                i_name = st.text_input("Nom du produit", value="Amundi MSCI World")
+                
+            with f3:
+                i_qty = st.number_input("Quantité", min_value=0.0001, step=1.0, format="%.4f")
+                i_price = st.number_input("Prix Unitaire", min_value=0.0001, step=0.1, format="%.2f")
+                
+            with f4:
+                # On ajoute le paramètre index=default_index
+                i_acc = st.selectbox(
+                    "Compte impacté (Cash)", 
+                    account_options, 
+                    index=default_index,
+                    disabled=not accounts_ready
+                )
+                i_fees = st.number_input("Frais totaux (€)", min_value=0.0, step=0.1, format="%.2f")
+
+            i_comm = st.text_input("Commentaire (Optionnel)")
+            
+            # Bouton de validation
+            submit_btn = st.form_submit_button("Enregistrer l'investissement", type="primary")
+            
+            if submit_btn:
+                # Vérification bloquante avant sauvegarde
+                if not accounts_ready:
+                    st.error("Impossible d'enregistrer : aucun compte bancaire n'est disponible. Veuillez importer un fichier Excel dans l'onglet 'Import / Données'.")
+                else:
+                    # Gestion du commentaire vide (évite erreur SQL)
+                    safe_comm = i_comm if i_comm and i_comm.strip() != "" else ""
+                    
+                    save_investment(i_date, i_ticker, i_name, i_action, i_qty, i_price, i_fees, i_acc, safe_comm)
+                    st.success("Transaction enregistrée avec succès !")
+                    st.rerun()
+
+    # 3. Tableau Historique (Collapsible)
+    with st.expander("📜 Historique des transactions produits financiers", expanded=False):
+        # Nécessite d'avoir importé get_investments_df depuis src.queries
+        # Si vous ne l'avez pas fait, ajoutez "from src.queries import get_investments_df" en haut du fichier
+        try:
+            df_inv_hist = get_investments_df()
+            if not df_inv_hist.is_empty():
+                st.dataframe(
+                    df_inv_hist.to_pandas(),
+                    use_container_width=True,
+                    column_config={
+                        "date": st.column_config.DateColumn("Date", format="DD/MM/YYYY"),
+                        "action": "Action",
+                        "ticker": "Ticker",
+                        "name": "Nom",
+                        "quantity": st.column_config.NumberColumn("Qté"),
+                        "unit_price": st.column_config.NumberColumn("Prix U.", format="%.2f €"),
+                        "fees": st.column_config.NumberColumn("Frais", format="%.2f €"),
+                        "account": "Compte",
+                        "comment": "Note"
+                    },
+                    hide_index=True
+                )
+            else:
+                st.info("Aucune transaction enregistrée.")
+        except NameError:
+            st.error("Fonction 'get_investments_df' manquante. Vérifiez src/queries.py.")
 
     st.divider()
     
+    # 4. Calculs et Graphiques (Reste inchangé)
     with st.spinner("Calcul de l'évolution du patrimoine..."):
         df_wealth = calculate_wealth_evolution()
     
     if df_wealth.is_empty():
         st.info("Pas assez de données pour générer le graphique.")
-    
     else:
+        # ... (Le code existant pour le graphique reste ici) ...
+        # Copiez-collez la fin de votre fichier original ici (gestion wealth_start, graphique Plotly, etc.)
         if "wealth_start" not in st.session_state:
             st.session_state["wealth_start"] = df_wealth["date"].min()
         if "wealth_end" not in st.session_state:
@@ -352,12 +461,9 @@ elif page == "Patrimoine & Bourse":
 
         with st.container():
             st.subheader("📅 Période d'analyse")
-            
             col_shortcuts, col_pickers = st.columns([3, 2], gap="large")
-            
             with col_shortcuts:
                 st.caption("Raccourcis rapides")
-                # CORRECTION : use_container_width -> width="stretch"
                 b1, b2, b3, b4 = st.columns(4)
                 if b1.button("1 Mois", key="w_1m", width="stretch"):
                     update_wealth_range(days=30)
@@ -382,10 +488,7 @@ elif page == "Patrimoine & Bourse":
                 w_start = c_start.date_input("Début", key="wealth_start")
                 w_end = c_end.date_input("Fin", key="wealth_end")
 
-        df_viz = df_wealth.filter(
-            (pl.col("date") >= w_start) & 
-            (pl.col("date") <= w_end)
-        )
+        df_viz = df_wealth.filter((pl.col("date") >= w_start) & (pl.col("date") <= w_end))
         
         if df_viz.is_empty():
             st.warning("Aucune donnée sur cette période.")

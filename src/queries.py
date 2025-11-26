@@ -1,5 +1,6 @@
 import polars as pl
 from src.database import get_db_path
+import sqlite3
 
 def get_transactions_df():
     """Reads transactions from SQLite into Polars"""
@@ -9,9 +10,24 @@ def get_transactions_df():
     uri = f"sqlite:///{clean_path}"
     return pl.read_database_uri(query, uri)
 
+def get_investments_df():
+    """Récupère l'historique des investissements pour affichage"""
+    query = """
+        SELECT date, action, ticker, name, quantity, unit_price, fees, account, comment 
+        FROM investments 
+        ORDER BY date DESC
+    """
+    raw_path = get_db_path()
+    clean_path = raw_path.replace("\\", "/")
+    uri = f"sqlite:///{clean_path}"
+    try:
+        return pl.read_database_uri(query, uri)
+    except:
+        return pl.DataFrame()
+# -----------------
+
 def update_exclusion(tx_id, is_excluded):
     """Updates the excluded status of a transaction"""
-    import sqlite3
     conn = sqlite3.connect(get_db_path())
     c = conn.cursor()
     val = 1 if is_excluded else 0
