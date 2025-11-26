@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import uuid
 import sqlite3
 from datetime import date
+from datetime import date, timedelta 
 
 from src.database import init_db, get_db_path
 from src.importer import import_excel_file 
@@ -122,84 +123,81 @@ elif page == "Tableau de Bord":
     if df.is_empty():
         st.warning("Pas de données. Veuillez importer des fichiers.")
     else:
-        # 1. Filtre Global (Année)
-        c_year, _ = st.columns([1, 3])
-        with c_year:
-            years = sorted(df["date"].dt.year().unique().to_list(), reverse=True)
-            if not years:
-                years = [date.today().year]
-            selected_year = st.selectbox("Année", years)
+        # --- GESTION DES DATES & RACCOURCIS ---
         
-        df_year = df.filter(pl.col("date").dt.year() == selected_year)
-        
-        # 2. Gestion des Exclusions (Outliers)
-        with st.expander("🛠️ Gestion des Transactions Exceptionnelles (Outliers)", expanded=True):
-            
-            # --- NOUVEAU : Filtres pour le tableau d'exclusion ---
-            c_ex_1, c_ex_2 = st.columns(2)
-            with c_ex_1:
-                threshold = st.slider("Seuil de détection (€)", 500, 10000, 2000, step=100)
-            with c_ex_2:
-                # Menu demandé : Choix entre Dépenses (Defaut) et Revenus
-                filter_type_label = st.radio(
-                    "Type de transaction :", 
-                    ["Dépenses", "Revenus"], 
-                    horizontal=True, # Affiche les options côte à côte
-                    index=0
-                )            
-            # Conversion du choix en valeur DB
-            db_type = "EXPENSE" if filter_type_label == "Dépenses" else "INCOME"
+        # 1. Initialisation des clés du widget si elles n'existent pas
+        if "input_start" not in st.session_state:
+            st.session_state["input_start"] = date(date.today().year, 1, 1)
+        if "input_end" not in st.session_state:
+            st.session_state["input_end"] = date.today()
 
-            # Filtre Polars : Année + Seuil + Type
-            outliers = df_year.filter(
-                (pl.col("amount").abs() >= threshold) & 
-                (pl.col("type") == db_type)
-            ).sort("date", descending=True)
+        # 2. Fonction de Callback pour synchroniser les boutons et les calendriers
+        def update_date_range(days=None, start=None, end=None):
+            """Met à jour directement les clés utilisées par les widgets st.date_input"""
+            target_end = date.today()
+            if end:
+                target_end = end
+                
+            target_start = target_end # fallback
             
-            if not outliers.is_empty():
-                st.write(f"**{len(outliers)}** {filter_type_label.lower()} détectées au dessus de {threshold}€")
-                
-                pdf_out = outliers.to_pandas()
-                
-                edited_out = st.data_editor(
-                    pdf_out,
-                    column_config={
-                        "is_excluded": st.column_config.CheckboxColumn("Exclure ?", help="Cocher pour retirer des graphiques"),
-                        "amount": st.column_config.NumberColumn("Montant", format="%.2f €"),
-                        "date": st.column_config.DateColumn("Date", format="DD/MM/YYYY"),
-                        "category": st.column_config.TextColumn("Catégorie"),
-                        "comment": st.column_config.TextColumn("Commentaire"),
-                        "id": None # On cache l'ID technique
-                    },
-                    # On autorise l'édition de 'is_excluded' et 'comment' (pratique pour annoter)
-                    disabled=["date", "category", "account", "amount", "currency", "type"],
-                    hide_index=True,
-                    use_container_width=True
-                )
-                
-                if st.button("Mettre à jour les exclusions"):
-                    count = 0
-                    for i, row in edited_out.iterrows():
-                        # On compare avec la valeur actuelle en base
-                        orig = df.filter(pl.col("id") == row['id']).select("is_excluded").item()
-                        if bool(row['is_excluded']) != bool(orig):
-                            update_exclusion(row['id'], bool(row['is_excluded']))
-                            count += 1
-                    
-                    if count > 0:
-                        st.success(f"{count} transactions mises à jour.")
-                        st.rerun()
-            else:
-                st.info(f"Aucune transaction de type '{filter_type_label}' ne dépasse {threshold}€.")
+            if start:
+                target_start = start
+            elif days:
+                target_start = target_end - timedelta(days=days)
+            
+            # C'est ici que la magie opère : on met à jour les clés des widgets
+            st.session_state["input_start"] = target_start
+            st.session_state["input_end"] = target_end
+
+        # 3. Interface UI améliorée (Layout horizontal)
+        with st.container():
+            st.subheader("📅 Période d'analyse")
+            
+            # On divise en 2 colonnes : Raccourcis à gauche, Calendriers à droite
+            col_shortcuts, col_pickers = st.columns([3, 2], gap="large")
+            
+            with col_shortcuts:
+                st.caption("Raccourcis rapides")
+                # Ligne 1 : Périodes glissantes
+                b1, b2, b3, b4 = st.columns(4)
+                if b1.button("1 Mois", use_container_width=True):
+                    update_date_range(days=30)
+                if b2.button("3 Mois", use_container_width=True):
+                    update_date_range(days=90)
+                if b3.button("YTD (Année)", use_container_width=True, help="Depuis le 1er Janvier"):
+                    update_date_range(start=date(date.today().year, 1, 1))
+                if b4.button("Tout", use_container_width=True):
+                    min_date = df["date"].min()
+                    update_date_range(start=min_date)
+
+                # Ligne 2 : Années spécifiques (Affichées sous forme de petits "tags")
+                years = sorted(df["date"].dt.year().unique().to_list(), reverse=True)
+                if years:
+                    st.write("") # Petit espacement
+                    cols_years = st.columns(len(years) + 2) # +2 pour éviter que ce soit trop large
+                    for i, year in enumerate(years):
+                        if cols_years[i].button(str(year), key=f"year_{year}", use_container_width=True):
+                            update_date_range(start=date(year, 1, 1), end=date(year, 12, 31))
+
+            with col_pickers:
+                st.caption("Sélection manuelle")
+                c_start, c_end = st.columns(2)
+                # Notez que nous n'avons plus besoin de 'value=' car la 'key' gère l'état
+                # Le widget lira automatiquement st.session_state["input_start"]
+                start_date = c_start.date_input("Début", key="input_start")
+                end_date = c_end.date_input("Fin", key="input_end")
 
         st.divider()
 
-        # 3. Graphiques (Calculés sur les données NON exclues)
-        df_clean = df_year.filter(pl.col("is_excluded") == 0)
-        
+        # 4. Filtrage des données (On utilise directement les variables issues des widgets)
+        df_filtered = df.filter(
+            (pl.col("date") >= start_date) & 
+            (pl.col("date") <= end_date)
+        )
+                
         # KPI
-        income = df_clean.filter(pl.col("type") == "INCOME")["amount"].sum()
-        expense = df_clean.filter(pl.col("type") == "EXPENSE")["amount"].sum()
+        income = df_filtered.filter(pl.col("type") == "INCOME")["amount"].sum()
+        expense = df_filtered.filter(pl.col("type") == "EXPENSE")["amount"].sum()
         savings = income - expense
         rate = (savings / income * 100) if income > 0 else 0
         
@@ -215,7 +213,7 @@ elif page == "Tableau de Bord":
         
         with col_charts_1:
             st.subheader("Dépenses par Catégorie")
-            df_exp = df_clean.filter(pl.col("type") == "EXPENSE")
+            df_exp = df_filtered.filter(pl.col("type") == "EXPENSE")
             if not df_exp.is_empty():
                 grp = df_exp.group_by("category").agg(pl.col("amount").sum()).sort("amount", descending=True)
                 fig_pie = px.pie(grp.to_pandas(), values="amount", names="category", hole=0.4)
@@ -223,7 +221,7 @@ elif page == "Tableau de Bord":
         
         with col_charts_2:
             st.subheader("Évolution Mensuelle")
-            monthly = df_clean.group_by([pl.col("date").dt.month().alias("month"), "type"]).agg(pl.col("amount").sum()).sort("month")
+            monthly = df_filtered.group_by([pl.col("date").dt.month().alias("month"), "type"]).agg(pl.col("amount").sum()).sort("month")
             if not monthly.is_empty():
                 fig_bar = px.bar(monthly.to_pandas(), x="month", y="amount", color="type", barmode="group",
                                  color_discrete_map={"INCOME": "#00CC96", "EXPENSE": "#EF553B"})
