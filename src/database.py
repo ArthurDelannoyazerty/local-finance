@@ -32,7 +32,6 @@ def sync_accounts_from_history():
 
     count = 0
     for acc in found_accounts:
-        # MODIFICATION : On insère uniquement name et initial_balance
         c.execute("INSERT OR IGNORE INTO accounts (name, initial_balance) VALUES (?, 0.0)", (acc,))
         if c.rowcount > 0:
             count += 1
@@ -48,7 +47,6 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    # MODIFICATION : Suppression de la colonne 'type'
     c.execute("""
     CREATE TABLE IF NOT EXISTS accounts (
         name TEXT PRIMARY KEY,
@@ -93,6 +91,17 @@ def init_db():
         fees REAL,
         account TEXT,
         comment TEXT
+    )
+    """)
+    
+    # --- NEW: MARKET DATA CACHE ---
+    # We use a composite primary key to avoid duplicates for the same day/ticker
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS market_prices (
+        date DATE,
+        ticker TEXT,
+        price REAL,
+        PRIMARY KEY (date, ticker)
     )
     """)
     
