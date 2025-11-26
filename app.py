@@ -26,7 +26,6 @@ with st.sidebar:
     st.title("💰 Finance Tracker")
     st.write("---") 
     
-    # CORRECTION : use_container_width -> width="stretch"
     if st.button("📊 Tableau de Bord", width="stretch"):
         st.session_state["current_page"] = "Tableau de Bord"
         
@@ -174,7 +173,6 @@ elif page == "Tableau de Bord":
             
             with col_shortcuts:
                 st.caption("Raccourcis rapides")
-                # CORRECTION : use_container_width -> width="stretch"
                 b1, b2, b3, b4 = st.columns(4)
                 if b1.button("1 Mois", width="stretch"):
                     update_date_range(days=30)
@@ -252,7 +250,6 @@ elif page == "Tableau de Bord":
                 
                 fig_pie.update_layout(showlegend=False, margin=dict(t=40, b=80, l=20, r=20), height=600)
                 
-                # CORRECTION : use_container_width -> width="stretch"
                 st.plotly_chart(fig_pie, width="stretch")
             else:
                 st.info("Aucune dépense sur cette période.")
@@ -328,7 +325,6 @@ elif page == "Tableau de Bord":
                     height=450
                 )
 
-                # CORRECTION : use_container_width -> width="stretch"
                 st.plotly_chart(fig_combo, width="stretch")
             else:
                 st.info("Pas de données sur la période sélectionnée.")
@@ -418,7 +414,7 @@ elif page == "Patrimoine & Bourse":
             if not df_inv_hist.is_empty():
                 st.dataframe(
                     df_inv_hist.to_pandas(),
-                    use_container_width=True,
+                    width="stretch",
                     column_config={
                         "date": st.column_config.DateColumn("Date", format="DD/MM/YYYY"),
                         "action": "Action",
@@ -563,5 +559,4 @@ elif page == "Patrimoine & Bourse":
                 margin=dict(l=20, r=20, t=60, b=40)
             )
 
-            # CORRECTION : use_container_width -> width="stretch"
             st.plotly_chart(fig, width="stretch")
