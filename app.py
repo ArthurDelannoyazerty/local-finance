@@ -122,9 +122,9 @@ elif page == "Tableau de Bord":
     if df.is_empty():
         st.warning("Pas de données. Veuillez importer des fichiers.")
     else:
-        # Filters
-        c1, c2, c3 = st.columns(3)
-        with c1:
+        # 1. Filtre Global (Année)
+        c_year, _ = st.columns([1, 3])
+        with c_year:
             years = sorted(df["date"].dt.year().unique().to_list(), reverse=True)
             if not years:
                 years = [date.today().year]
@@ -132,43 +132,72 @@ elif page == "Tableau de Bord":
         
         df_year = df.filter(pl.col("date").dt.year() == selected_year)
         
-        # Outlier Detection
-        with st.expander("🛠️ Gestion des Transactions Exceptionnelles (Outliers)"):
-            threshold = st.slider("Seuil de détection (€)", 500, 10000, 2000, step=100)
+        # 2. Gestion des Exclusions (Outliers)
+        with st.expander("🛠️ Gestion des Transactions Exceptionnelles (Outliers)", expanded=True):
             
-            outliers = df_year.filter(pl.col("amount").abs() >= threshold).sort("date", descending=True)
+            # --- NOUVEAU : Filtres pour le tableau d'exclusion ---
+            c_ex_1, c_ex_2 = st.columns(2)
+            with c_ex_1:
+                threshold = st.slider("Seuil de détection (€)", 500, 10000, 2000, step=100)
+            with c_ex_2:
+                # Menu demandé : Choix entre Dépenses (Defaut) et Revenus
+                filter_type_label = st.radio(
+                    "Type de transaction :", 
+                    ["Dépenses", "Revenus"], 
+                    horizontal=True, # Affiche les options côte à côte
+                    index=0
+                )            
+            # Conversion du choix en valeur DB
+            db_type = "EXPENSE" if filter_type_label == "Dépenses" else "INCOME"
+
+            # Filtre Polars : Année + Seuil + Type
+            outliers = df_year.filter(
+                (pl.col("amount").abs() >= threshold) & 
+                (pl.col("type") == db_type)
+            ).sort("date", descending=True)
             
             if not outliers.is_empty():
-                st.write(f"{len(outliers)} transactions détectées > {threshold}€")
+                st.write(f"**{len(outliers)}** {filter_type_label.lower()} détectées au dessus de {threshold}€")
                 
                 pdf_out = outliers.to_pandas()
+                
                 edited_out = st.data_editor(
                     pdf_out,
                     column_config={
-                        "is_excluded": st.column_config.CheckboxColumn("Exclure ?", help="Exclure des stats"),
+                        "is_excluded": st.column_config.CheckboxColumn("Exclure ?", help="Cocher pour retirer des graphiques"),
                         "amount": st.column_config.NumberColumn("Montant", format="%.2f €"),
-                        "id": None
+                        "date": st.column_config.DateColumn("Date", format="DD/MM/YYYY"),
+                        "category": st.column_config.TextColumn("Catégorie"),
+                        "comment": st.column_config.TextColumn("Commentaire"),
+                        "id": None # On cache l'ID technique
                     },
+                    # On autorise l'édition de 'is_excluded' et 'comment' (pratique pour annoter)
                     disabled=["date", "category", "account", "amount", "currency", "type"],
-                    hide_index=True
+                    hide_index=True,
+                    use_container_width=True
                 )
                 
                 if st.button("Mettre à jour les exclusions"):
                     count = 0
                     for i, row in edited_out.iterrows():
+                        # On compare avec la valeur actuelle en base
                         orig = df.filter(pl.col("id") == row['id']).select("is_excluded").item()
                         if bool(row['is_excluded']) != bool(orig):
                             update_exclusion(row['id'], bool(row['is_excluded']))
                             count += 1
+                    
                     if count > 0:
                         st.success(f"{count} transactions mises à jour.")
                         st.rerun()
             else:
-                st.info("Aucun outlier détecté.")
+                st.info(f"Aucune transaction de type '{filter_type_label}' ne dépasse {threshold}€.")
 
-        # Charts
+        st.divider()
+
+        # 3. Graphiques (Calculés sur les données NON exclues)
         df_clean = df_year.filter(pl.col("is_excluded") == 0)
         
+        # KPI
         income = df_clean.filter(pl.col("type") == "INCOME")["amount"].sum()
         expense = df_clean.filter(pl.col("type") == "EXPENSE")["amount"].sum()
         savings = income - expense
