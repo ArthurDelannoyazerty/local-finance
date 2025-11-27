@@ -494,39 +494,64 @@ elif page == "Patrimoine & Bourse":
             st.write("---")
             col_opts, col_metrics = st.columns([2, 1])
             
+            # Identify account columns (exclude metadata columns)
             excluded_cols = ['date', 'Total Wealth', 'Total Invest']
             account_cols = [c for c in pdf_wealth.columns if c not in excluded_cols]
             
             with col_opts:
                 chart_mode = st.radio(
                     "Mode d'affichage", 
-                    ["Global (Total)", "Détail (Empilé)", "Comparaison (Sélection)"], 
+                    ["Total", "Détail"], 
                     horizontal=True
                 )
                 
-                selected_accounts = account_cols
-                if chart_mode == "Comparaison (Sélection)":
+                # UPDATE 1: Allow selection for both Detail and Comparison modes
+                selected_accounts = account_cols # Default to all
+                
+                if chart_mode in ["Détail"]:
                     selected_accounts = st.multiselect(
-                        "Sélectionnez les comptes à afficher", 
+                        "Comptes à inclure dans le calcul et le graphique", 
                         account_cols, 
-                        default=account_cols[:3] if len(account_cols)>3 else account_cols
+                        default=account_cols
                     )
 
             with col_metrics:
-                last_val = pdf_wealth.iloc[-1]['Total Wealth']
-                first_val = pdf_wealth.iloc[0]['Total Wealth']
-                delta = last_val - first_val
-                st.metric("Patrimoine Fin de Période", f"{last_val:,.2f} €", delta=f"{delta:,.2f} €")
+                # UPDATE 2: Dynamic calculation of the metric
+                if chart_mode == "Total":
+                    # In Global mode, we usually look at the absolute total
+                    current_series = pdf_wealth['Total Wealth']
+                else:
+                    # In Detail/Comparison, we sum ONLY the selected accounts
+                    if selected_accounts:
+                        current_series = pdf_wealth[selected_accounts].sum(axis=1)
+                    else:
+                        current_series = pd.Series([0.0] * len(pdf_wealth))
 
+                # Safe access to values
+                if not current_series.empty:
+                    last_val = current_series.iloc[-1]
+                    first_val = current_series.iloc[0]
+                else:
+                    last_val = 0.0
+                    first_val = 0.0
+                    
+                delta = last_val - first_val
+                
+                # Dynamic Label based on mode
+                metric_label = "Patrimoine (Sélection)" if chart_mode != "Total" else "Patrimoine Net Total"
+                st.metric(metric_label, f"{last_val:,.2f} €", delta=f"{delta:,.2f} €")
+
+            # UPDATE 3: Generate the chart based on the selection
             fig = go.Figure()
 
-            if chart_mode == "Global (Total)":
+            if chart_mode == "Total":
                 fig.add_trace(go.Scatter(
                     x=pdf_wealth['date'], y=pdf_wealth['Total Wealth'], 
                     mode='lines', name='Patrimoine Net',
                     line=dict(color='#636EFA', width=4),
                     fill='tozeroy', fillcolor='rgba(99, 110, 250, 0.1)' 
                 ))
+                # Optional: Show investment part if available
                 if "Total Invest" in pdf_wealth.columns:
                     fig.add_trace(go.Scatter(
                         x=pdf_wealth['date'], y=pdf_wealth['Total Invest'], 
@@ -534,20 +559,26 @@ elif page == "Patrimoine & Bourse":
                         line=dict(color='gold', width=2, dash='dash')
                     ))
 
-            elif chart_mode == "Détail (Empilé)":
-                for col in account_cols:
-                    fig.add_trace(go.Scatter(
-                        x=pdf_wealth['date'], y=pdf_wealth[col],
-                        mode='lines', stackgroup='one', name=col
-                    ))
-
-            elif chart_mode == "Comparaison (Sélection)":
+            elif chart_mode == "Détail":
+                # Stack only selected accounts
                 if selected_accounts:
                     for col in selected_accounts:
                         fig.add_trace(go.Scatter(
                             x=pdf_wealth['date'], y=pdf_wealth[col],
-                            mode='lines', name=col
+                            mode='lines', stackgroup='one', name=col
                         ))
+                else:
+                    # Handle empty selection
+                    fig.add_trace(go.Scatter(x=pdf_wealth['date'], y=[0]*len(pdf_wealth), mode='lines', name='Aucun compte'))
+
+            # elif chart_mode == "Comparaison (Sélection)":
+            #     # Compare only selected accounts
+            #     if selected_accounts:
+            #         for col in selected_accounts:
+            #             fig.add_trace(go.Scatter(
+            #                 x=pdf_wealth['date'], y=pdf_wealth[col],
+            #                 mode='lines', name=col
+            #             ))
 
             fig.update_layout(
                 title=f"Évolution du {w_start.strftime('%d/%m/%Y')} au {w_end.strftime('%d/%m/%Y')}",
