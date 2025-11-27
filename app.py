@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from src.database import init_db, get_db_path
 from src.importer import import_excel_file 
 from src.queries import get_transactions_df, update_exclusion, get_investments_df
-from src.engine import calculate_wealth_evolution
+from src.engine import calculate_wealth_evolution, get_detailed_snapshot
 
 # --- SETUP ---
 st.set_page_config(page_title="My Finance Tracker", layout="wide", initial_sidebar_state="expanded")
@@ -31,6 +31,9 @@ with st.sidebar:
         
     if st.button("📈 Patrimoine & Bourse", width="stretch"):
         st.session_state["current_page"] = "Patrimoine & Bourse"
+
+    if st.button("🗺️ Carte du Marché", width="stretch"):
+        st.session_state["current_page"] = "Carte du Marché"
         
     if st.button("📥 Import / Données", width="stretch"):
         st.session_state["current_page"] = "Import / Données"
@@ -571,15 +574,6 @@ elif page == "Patrimoine & Bourse":
                     # Handle empty selection
                     fig.add_trace(go.Scatter(x=pdf_wealth['date'], y=[0]*len(pdf_wealth), mode='lines', name='Aucun compte'))
 
-            # elif chart_mode == "Comparaison (Sélection)":
-            #     # Compare only selected accounts
-            #     if selected_accounts:
-            #         for col in selected_accounts:
-            #             fig.add_trace(go.Scatter(
-            #                 x=pdf_wealth['date'], y=pdf_wealth[col],
-            #                 mode='lines', name=col
-            #             ))
-
             fig.update_layout(
                 title=f"Évolution du {w_start.strftime('%d/%m/%Y')} au {w_end.strftime('%d/%m/%Y')}",
                 xaxis=dict(showgrid=False),
@@ -591,3 +585,181 @@ elif page == "Patrimoine & Bourse":
             )
 
             st.plotly_chart(fig, width="stretch")
+    
+
+    
+# =========================================================
+# PAGE: CARTE DU MARCHÉ (CORRECTED WITH KEYERROR FIX)
+# =========================================================
+elif page == "Carte du Marché":
+    st.header("🗺️ Carte Thermique du Patrimoine (Treemap)")
+
+    # 1. Controls
+    # ----------------------------------------------------------------
+    col_ctrl1, col_ctrl2 = st.columns([1, 3])
+
+    with col_ctrl1:
+        mode = st.selectbox(
+            "Mode d'affichage",
+            [
+                "Poids des Comptes",
+                "Poids Comptes & Actifs",
+                "Performance (Évolution) - Tout",
+                "Performance (Évolution) - Actions"
+            ]
+        )
+
+    if "Performance" in mode:
+        if "map_start" not in st.session_state:
+            st.session_state["map_start"] = date.today() - timedelta(days=30)
+        if "map_end" not in st.session_state:
+            st.session_state["map_end"] = date.today()
+
+        def update_map_date_range(days=None, start=None, end=None):
+            target_end = end if end else date.today()
+            target_start = start if start else (target_end - timedelta(days=days) if days else target_end)
+            st.session_state["map_start"] = target_start
+            st.session_state["map_end"] = target_end
+        
+        conn = sqlite3.connect(get_db_path())
+        try:
+            min_date_db = pd.read_sql("SELECT MIN(date) as min_date FROM investments", conn)["min_date"].iloc[0]
+            if pd.isna(min_date_db): global_min_date = date(2020, 1, 1)
+            else: global_min_date = pd.to_datetime(min_date_db).date()
+        except:
+            global_min_date = date(2020, 1, 1)
+        conn.close()
+
+        with col_ctrl2:
+            sub_c1, sub_c2 = st.columns([3, 2])
+            with sub_c1:
+                st.caption("Raccourcis rapides")
+                b1, b2, b3, b4 = st.columns(4)
+                if b1.button("1 Mois", width="stretch", key="map_1m"): update_map_date_range(days=30)
+                if b2.button("3 Mois", width="stretch", key="map_3m"): update_map_date_range(days=90)
+                if b3.button("YTD", width="stretch", key="map_ytd"): update_map_date_range(start=date(date.today().year, 1, 1))
+                if b4.button("Tout", width="stretch", key="map_all"): update_map_date_range(start=global_min_date)
+
+            with sub_c2:
+                st.caption("Sélection manuelle")
+                date_start = st.date_input("Début", key="map_start")
+                date_end = st.date_input("Fin", key="map_end")
+        
+        target_date = date_end
+    else:
+        with col_ctrl2:
+            target_date = st.date_input("Date de situation", date.today())
+        date_start = target_date
+        date_end = target_date
+
+    st.write("---")
+
+    # 2. Data Processing
+    # ----------------------------------------------------------------
+    with st.spinner("Génération de la carte..."):
+        df_end = get_detailed_snapshot(date_end)
+        
+        if df_end.empty:
+            st.warning("Aucune donnée disponible à la date de fin sélectionnée.")
+        else:
+            viz_df = df_end.copy()
+            path_cols = []
+            color_args = {}
+            hovertemplate = "<b>%{label}</b><br>Valeur: %{value:,.0f} €<extra></extra>"
+            custom_data_cols = None
+
+            if mode == "Poids des Comptes":
+                viz_df = viz_df.groupby("Account", as_index=False)["Value"].sum()
+                path_cols = ["Account"]
+                color_args = dict(color="Account")
+
+            elif mode == "Poids Comptes & Actifs":
+                path_cols = ["Account", "Name"]
+                color_args = dict(color="Account")
+
+            elif "Performance" in mode:
+                df_start = get_detailed_snapshot(date_start)
+                
+                conn = sqlite3.connect(get_db_path())
+                cost_basis_query = """
+                    SELECT account, ticker, SUM(quantity * unit_price + fees) as cost_basis
+                    FROM investments
+                    WHERE action = 'BUY' AND date > ? AND date <= ?
+                    GROUP BY account, ticker
+                """
+                df_cost_basis = pd.read_sql(cost_basis_query, conn, params=(date_start, date_end))
+                conn.close()
+
+                # --- THIS IS THE FIX ---
+                # Rename columns from SQL to match the main DataFrame's case
+                if not df_cost_basis.empty:
+                    df_cost_basis = df_cost_basis.rename(columns={"account": "Account", "ticker": "Ticker"})
+                # -----------------------
+
+                df_start_slim = df_start[["Account", "Ticker", "Value"]].rename(columns={"Value": "Value_Start"})
+                viz_df = viz_df.merge(df_start_slim, on=["Account", "Ticker"], how="left")
+                viz_df = viz_df.merge(df_cost_basis, on=["Account", "Ticker"], how="left")
+                viz_df.fillna({"Value_Start": 0, "cost_basis": 0}, inplace=True)
+                
+                def get_adjusted_start(row):
+                    if row['Value_Start'] < 0.01 and row['cost_basis'] > 0:
+                        return row['cost_basis']
+                    return row['Value_Start']
+                
+                viz_df['Value_Start_Adjusted'] = viz_df.apply(get_adjusted_start, axis=1)
+
+                def calc_perf(row):
+                    start_val = row["Value_Start_Adjusted"]
+                    if start_val < 0.01: return 0.0
+                    end_val = row["Value"]
+                    return ((end_val - start_val) / start_val) * 100
+
+                viz_df["Performance %"] = viz_df.apply(calc_perf, axis=1)
+
+                if mode == "Performance (Évolution) - Actions":
+                    viz_df = viz_df[viz_df['Type'] == 'Investissement'].copy()
+
+                path_cols = ["Account", "Name"]
+                hovertemplate = "<b>%{label}</b><br>Valeur: %{value:,.0f} €<br>Perf: %{customdata[0]:.2f}%<extra></extra>"
+                custom_data_cols = ['Performance %']
+                
+                max_abs_perf = viz_df["Performance %"].abs().max()
+                if pd.isna(max_abs_perf) or max_abs_perf == 0: max_abs_perf = 1.0
+
+                color_args = dict(
+                    color="Performance %",
+                    color_continuous_scale="RdYlGn",
+                    range_color=[-max_abs_perf, max_abs_perf],
+                )
+
+            if viz_df.empty or viz_df['Value'].sum() < 0.01:
+                st.info("Aucun actif à afficher pour la sélection actuelle.")
+            else:
+                fig = px.treemap(
+                    viz_df,
+                    path=path_cols,
+                    values='Value',
+                    custom_data=custom_data_cols,
+                    **color_args
+                )
+
+                fig.update_traces(
+                    textinfo="label+value",
+                    texttemplate="%{label}<br>%{value:,.0f}€",
+                    hovertemplate=hovertemplate,
+                    marker=dict(line=dict(width=2, color='white'))
+                )
+                
+                fig.update_layout(
+                    margin=dict(t=20, l=10, r=10, b=10),
+                    height=700,
+                    coloraxis_colorbar=dict(title="Perf %") if 'Performance' in mode else None
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+
+                with st.expander("Voir les données détaillées"):
+                    st.dataframe(viz_df)
+
+  
+

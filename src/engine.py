@@ -262,3 +262,134 @@ def calculate_wealth_evolution():
     pl_df = pl_df.with_columns(pl.col("date").cast(pl.Date))
     
     return pl_df
+
+
+def get_detailed_snapshot(target_date: date):
+    """
+    Returns a detailed breakdown of the portfolio at a specific date.
+    Columns: [Account, Type, Ticker, Quantity, UnitPrice, Value]
+    Type is either 'CASH' or 'INVEST'.
+    """
+    target_ts = pd.Timestamp(target_date)
+    conn = sqlite3.connect(get_db_path())
+    
+    # 1. Get Cash Flow (Income, Expense, Transfers, Inv Buys/Sells)
+    # -------------------------------------------------------------
+    # Initial Balances
+    accounts = pd.read_sql("SELECT name, initial_balance FROM accounts", conn)
+    cash_balances = {row['name']: row['initial_balance'] for _, row in accounts.iterrows()}
+    
+    # Transactions (Income/Expense)
+    tx_query = "SELECT account, amount, type FROM transactions WHERE date <= ? AND is_excluded = 0"
+    txs = pd.read_sql(tx_query, conn, params=(target_date,))
+    if not txs.empty:
+        for _, row in txs.iterrows():
+            acc = row['account']
+            amt = row['amount']
+            if acc in cash_balances:
+                if row['type'] == 'INCOME': cash_balances[acc] += amt
+                else: cash_balances[acc] -= amt
+
+    # Transfers
+    tr_query = "SELECT source_account, target_account, amount FROM transfers WHERE date <= ?"
+    trs = pd.read_sql(tr_query, conn, params=(target_date,))
+    if not trs.empty:
+        for _, row in trs.iterrows():
+            if row['source_account'] in cash_balances: cash_balances[row['source_account']] -= row['amount']
+            if row['target_account'] in cash_balances: cash_balances[row['target_account']] += row['amount']
+
+    # Investment Cash Impact & Share Quantities
+    inv_query = "SELECT account, ticker, name, action, quantity, unit_price, fees FROM investments WHERE date <= ?"
+    invs = pd.read_sql(inv_query, conn, params=(target_date,))
+    
+    portfolio_qty = {} # { (Account, Ticker): Quantity }
+    ticker_names = {}  # { Ticker: Name }
+    
+    if not invs.empty:
+        for _, row in invs.iterrows():
+            acc = row['account']
+            tkr = row['ticker']
+            action = row['action']
+            qty = row['quantity']
+            price = row['unit_price']
+            fees = row['fees']
+            
+            ticker_names[tkr] = row['name']
+            
+            # Cash Impact
+            total_cost = qty * price
+            if acc in cash_balances:
+                if action == 'BUY': cash_balances[acc] -= (total_cost + fees)
+                elif action == 'SELL': cash_balances[acc] += (total_cost - fees)
+            
+            # Quantity Impact
+            key = (acc, tkr)
+            if key not in portfolio_qty: portfolio_qty[key] = 0.0
+            
+            if action == 'BUY': portfolio_qty[key] += qty
+            elif action == 'SELL': portfolio_qty[key] -= qty
+
+    conn.close()
+
+    # 2. Build Result Rows
+    # --------------------
+    rows = []
+    
+    # A. Add Cash Lines
+    for acc, bal in cash_balances.items():
+        if abs(bal) > 0.01:
+            rows.append({
+                "Account": acc,
+                "Type": "Liquidités",
+                "Ticker": "CASH",
+                "Name": "Liquidités",
+                "Quantity": 1.0,
+                "UnitPrice": bal,
+                "Value": bal
+            })
+            
+    # B. Add Investment Lines (Need Prices)
+    # Identify tickers with held quantity > 0
+    active_tickers = [k[1] for k, v in portfolio_qty.items() if v > 0.000001]
+    
+    # Fetch price at date
+    price_map = {}
+    if active_tickers:
+        unique_tickers = list(set(active_tickers))
+        # Ensure data exists (Reuse existing function logic simplified)
+        # Note: In a production app, we might trigger a download here, 
+        # but for speed we assume 'calculate_wealth_evolution' has run at least once globally.
+        
+        conn = sqlite3.connect(get_db_path())
+        placeholders = ','.join(['?'] * len(unique_tickers))
+        # Find the closest price equal or before target_date
+        p_query = f"""
+            SELECT ticker, price 
+            FROM market_prices 
+            WHERE ticker IN ({placeholders}) AND date <= ?
+            GROUP BY ticker 
+            HAVING date = MAX(date)
+        """
+        # We append target_date to the params list
+        params = unique_tickers + [target_date]
+        prices_df = pd.read_sql(p_query, conn, params=params)
+        conn.close()
+        
+        price_map = {row['ticker']: row['price'] for _, row in prices_df.iterrows()}
+
+    for (acc, tkr), qty in portfolio_qty.items():
+        if qty > 0.000001:
+            # Get price or fallback to 0 (or could fallback to last purchase price if sophisticated)
+            price = price_map.get(tkr, 0.0)
+            val = qty * price
+            rows.append({
+                "Account": acc,
+                "Type": "Investissement",
+                "Ticker": tkr,
+                "Name": ticker_names.get(tkr, tkr),
+                "Quantity": qty,
+                "UnitPrice": price,
+                "Value": val
+            })
+            
+    return pd.DataFrame(rows)
