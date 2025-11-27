@@ -94,8 +94,6 @@ def init_db():
     )
     """)
     
-    # --- NEW: MARKET DATA CACHE ---
-    # We use a composite primary key to avoid duplicates for the same day/ticker
     c.execute("""
     CREATE TABLE IF NOT EXISTS market_prices (
         date DATE,
