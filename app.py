@@ -583,8 +583,8 @@ elif page == "Patrimoine & Bourse":
                 height=700, 
                 margin=dict(l=20, r=20, t=60, b=40)
             )
-
-            st.plotly_chart(fig, width="stretch")
+            with st.container(height=710, border=False):
+                st.plotly_chart(fig, width="stretch")
     
 
     
@@ -752,7 +752,7 @@ elif page == "Carte du Marché":
                     coloraxis_colorbar=dict(title="Perf %") if 'Performance' in mode else None
                 )
 
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
                 with st.expander("Voir les données détaillées"):
                     st.dataframe(viz_df)
