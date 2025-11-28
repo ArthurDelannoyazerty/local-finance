@@ -689,12 +689,8 @@ elif page == "Carte du Marché":
                 """
                 df_cost_basis = pd.read_sql(cost_basis_query, conn, params=(date_start, date_end))
                 conn.close()
-
-                # --- THIS IS THE FIX ---
-                # Rename columns from SQL to match the main DataFrame's case
-                if not df_cost_basis.empty:
-                    df_cost_basis = df_cost_basis.rename(columns={"account": "Account", "ticker": "Ticker"})
-                # -----------------------
+                
+                df_cost_basis = df_cost_basis.rename(columns={"account": "Account", "ticker": "Ticker"})
 
                 df_start_slim = df_start[["Account", "Ticker", "Value"]].rename(columns={"Value": "Value_Start"})
                 viz_df = viz_df.merge(df_start_slim, on=["Account", "Ticker"], how="left")
