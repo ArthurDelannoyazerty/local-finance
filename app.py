@@ -309,6 +309,35 @@ def render_wealth_page() -> None:
     """Renders the Net Wealth and Investment management page."""
     st.header("📈 Évolution du Patrimoine")
     
+    # --- CALCUL DES KPI GLOBAUX ---
+    today_snapshot = get_detailed_snapshot(date.today())
+    
+    current_value = today_snapshot[today_snapshot['Type'] == 'Investissement']['Value'].sum()
+
+    # Calcul du "Net Investi" (Cash Flow entrant dans la bourse)
+    # Formule : (Total Achats + Frais) - (Total Ventes - Frais)
+    with sqlite3.connect(get_db_path()) as conn:
+        # Somme de tout l'argent sorti de la poche (Achats + Frais)
+        res_buy = pd.read_sql("SELECT SUM(quantity * unit_price + fees) FROM investments WHERE action = 'BUY'", conn).iloc[0, 0]
+        buy_total = res_buy if res_buy else 0.0
+        
+        # Somme de tout l'argent rentré dans la poche (Ventes - Frais)
+        res_sell = pd.read_sql("SELECT SUM(quantity * unit_price - fees) FROM investments WHERE action = 'SELL'", conn).iloc[0, 0]
+        sell_total = res_sell if res_sell else 0.0
+    
+    net_invested = buy_total - sell_total
+    
+    # Calcul Plus-Value / Moins-Value
+    pnl_abs = current_value - net_invested
+    pnl_pct = (pnl_abs / net_invested * 100) if net_invested > 0 else 0.0
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric(label="💰 Capital Net Investi",help="Argent sorti de votre poche (Achats - Ventes)",value=f"{net_invested:,.0f} €")
+    k2.metric(label="📊 Valeur Actuelle (Actifs)",help="Valeur de marché de vos actions/ETF aujourd'hui (hors cash)",value=f"{current_value:,.0f} €")
+    k3.metric(label="🚀 Plus/Moins-Value Latente",value=f"{pnl_abs:+,.0f} €",delta=f"{pnl_pct:+.2f} %")
+    
+    st.divider()
+
     acc_df = get_accounts()
     account_options: List[str] =[]
     accounts_ready: bool = False
