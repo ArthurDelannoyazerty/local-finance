@@ -195,11 +195,24 @@ def render_dashboard_page() -> None:
     expense = df_filtered.filter(pl.col("type") == "EXPENSE")["amount"].sum()
     savings = income - expense
     rate = (savings / income * 100) if income > 0 else 0.0
+
+    delta_days = (end_date - start_date).days + 1
+    num_months = max(1.0, delta_days / 30.436875)
+    
+    avg_income = income / num_months
+    avg_expense = expense / num_months
+    avg_savings = savings / num_months
     
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Revenus", f"{income:,.0f} €")
+    k1.caption(f"Moy. / mois : **{avg_income:,.0f} €**")
+    
     k2.metric("Dépenses", f"{expense:,.0f} €", delta_color="inverse")
+    k2.caption(f"Moy. / mois : **{avg_expense:,.0f} €**")
+
     k3.metric("Épargne", f"{savings:,.0f} €", delta_color="normal")
+    k3.caption(f"Moy. / mois : **{avg_savings:,.0f} €**")
+    
     k4.metric("Taux d'épargne", f"{rate:.1f} %")
     
     st.divider()
