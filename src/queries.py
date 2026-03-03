@@ -31,7 +31,7 @@ def get_investments_df() -> pl.DataFrame:
         pl.DataFrame: A Polars DataFrame containing investment records.
     """
     query: str = """
-        SELECT date, action, ticker, name, quantity, unit_price, fees, account, comment 
+        SELECT id, date, action, ticker, name, quantity, unit_price, fees, account, comment 
         FROM investments 
         ORDER BY date DESC
     """
@@ -99,4 +99,4 @@ def get_daily_balance_evolution() -> pl.DataFrame:
         .sort("date")
     )
     
-    return daily_delta
+    return daily_delta  

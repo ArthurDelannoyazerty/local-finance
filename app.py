@@ -57,6 +57,14 @@ def save_investment(
         """, (str(uuid.uuid4()), date_inv, ticker, name, action, qty, price, fees, account, final_comment))
         conn.commit()
 
+def delete_investments(ids_to_delete: List[str]) -> None:
+    """Supprime une liste d'investissements via leurs IDs."""
+    if not ids_to_delete:
+        return
+    with sqlite3.connect(get_db_path()) as conn:
+        placeholders = ','.join(['?'] * len(ids_to_delete))
+        conn.execute(f"DELETE FROM investments WHERE id IN ({placeholders})", ids_to_delete)
+        conn.commit()
 
 def update_account_initial(name: str, amount: float) -> None:
     """Updates the initial balance of an existing account."""
@@ -387,13 +395,22 @@ def render_wealth_page() -> None:
                     st.rerun()
 
     # Investment History Table
-    with st.expander("📜 Historique des transactions produits financiers", expanded=False):
+    with st.expander("📜 Historique et Gestion (Suppression)", expanded=False):
         df_inv_hist = get_investments_df()
+        
         if not df_inv_hist.is_empty():
-            st.dataframe(
-                df_inv_hist.to_pandas(),
-                width="stretch",
+            # Conversion en Pandas pour l'édition
+            pdf_hist = df_inv_hist.to_pandas()
+            
+            # Ajout d'une colonne de sélection (cases à cocher) initialisée à False
+            pdf_hist.insert(0, "Select", False)
+
+            # Affichage de l'éditeur
+            edited_df = st.data_editor(
+                pdf_hist,
                 column_config={
+                    "Select": st.column_config.CheckboxColumn("Suppr ?", help="Cochez pour supprimer"),
+                    "id": None,  # On cache la colonne ID, inutile pour l'utilisateur
                     "date": st.column_config.DateColumn("Date", format="DD/MM/YYYY"),
                     "action": "Action",
                     "ticker": "Ticker",
@@ -404,11 +421,26 @@ def render_wealth_page() -> None:
                     "account": "Compte",
                     "comment": "Note"
                 },
-                hide_index=True
+                hide_index=True,
+                key="editor_history" # Clé unique importante
             )
+
+            # Bouton d'action pour supprimer
+            # On vérifie si des lignes ont été cochées dans le DataFrame édité
+            rows_to_delete = edited_df[edited_df["Select"]]
+            
+            if not rows_to_delete.empty:
+                st.warning(f"⚠️ Vous allez supprimer {len(rows_to_delete)} transaction(s).")
+                col_del_1, col_del_2 = st.columns([1, 4])
+                
+                with col_del_1:
+                    if st.button("Confirmer la suppression", type="primary"):
+                        ids = rows_to_delete["id"].tolist()
+                        delete_investments(ids)
+                        st.success("Transactions supprimées !")
+                        st.rerun() # Rafraîchit la page immédiatement
         else:
             st.info("Aucune transaction enregistrée.")
-
     st.divider()
     
     # Wealth Evolution Calculation
