@@ -1,6 +1,7 @@
 import polars as pl
 import uuid
 import sqlite3
+import hashlib 
 import fastexcel
 from src.database import get_db_path
 
@@ -11,8 +12,15 @@ def ensure_accounts_exist(conn, accounts_set):
         if acc:
             cursor.execute("INSERT OR IGNORE INTO accounts (name, initial_balance) VALUES (?, 0.0)", (acc,))
 
-def generate_id():
-    return str(uuid.uuid4())
+def generate_deterministic_id(row, type_import):
+    """Generates a unique ID based on the transaction data to prevent duplicates."""
+    if type_import in ['Revenus', 'Dépenses']:
+        # Combine fields that make this transaction unique
+        unique_string = f"{row['date']}_{row['account']}_{row['amount']}_{row['category']}_{row['comment']}"
+    else: # Transferts
+        unique_string = f"{row['date']}_{row['source_account']}_{row['target_account']}_{row['amount']}"
+        
+    return hashlib.md5(unique_string.encode('utf-8')).hexdigest()
 
 def safe_amount(df, col_name):
     """Gère la conversion safe des montants (str avec virgule ou float)"""
@@ -75,7 +83,7 @@ def process_sheet(df, type_import, conn):
 
         rows = clean_df.to_dicts()
         for row in rows:
-            row['id'] = generate_id()
+            row['id'] = generate_deterministic_id(row, type_import)
             if row['comment'] is None: row['comment'] = ""
 
         cursor.executemany("""
@@ -98,7 +106,7 @@ def process_sheet(df, type_import, conn):
 
         rows = clean_df.to_dicts()
         for row in rows:
-            row['id'] = generate_id()
+            row['id'] = generate_deterministic_id(row, type_import)
             if row['comment'] is None: row['comment'] = ""
 
         cursor.executemany("""
