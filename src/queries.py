@@ -3,12 +3,11 @@ from src.database import get_db_path
 import sqlite3
 
 def get_transactions_df():
-    """Reads transactions from SQLite into Polars"""
-    query = "SELECT * FROM transactions ORDER BY date DESC"
-    raw_path = get_db_path()
-    clean_path = raw_path.replace("\\", "/")
-    uri = f"sqlite:///{clean_path}"
-    return pl.read_database_uri(query, uri)
+    query = "SELECT * FROM transactions WHERE is_excluded = 0 ORDER BY date DESC"
+    conn = sqlite3.connect(get_db_path())
+    df = pl.read_database(query, conn)
+    conn.close()
+    return df.with_columns(pl.col("date").cast(pl.Date))
 
 def get_investments_df():
     """Récupère l'historique des investissements pour affichage"""

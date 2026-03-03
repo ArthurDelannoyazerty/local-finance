@@ -706,10 +706,19 @@ elif page == "Carte du Marché":
 
                 def calc_perf(row):
                     start_val = row["Value_Start_Adjusted"]
-                    if start_val < 0.01: return 0.0
+                    net_invested = row.get("cost_basis", 0.0) # Assume cost_basis is Net Cashflows (Buys - Sells)
+                    
+                    # Total money put in = Starting value + new cash injected
+                    total_in = start_val + net_invested
+                    
+                    if total_in < 0.01: return 0.0
+                    
                     end_val = row["Value"]
-                    return ((end_val - start_val) / start_val) * 100
-
+                    
+                    # Profit = Final Value - What we started with - What we added
+                    profit = end_val - start_val - net_invested
+                    
+                    return (profit / total_in) * 100
                 viz_df["Performance %"] = viz_df.apply(calc_perf, axis=1)
 
                 if mode == "Performance (Évolution) - Actions":

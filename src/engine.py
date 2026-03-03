@@ -39,17 +39,14 @@ def update_market_data(tickers):
 
         try:
             # Download
-            df_yf = yf.download(ticker, start=start_date, end=today + timedelta(days=1), progress=False, auto_adjust=False)
+            df_yf = yf.download(ticker, start=start_date, end=today + timedelta(days=1), progress=False, auto_adjust=True)
             
             # Cleaning
             if not df_yf.empty:
                 if isinstance(df_yf.columns, pd.MultiIndex):
                     try:
-                        # Handle MultiIndex (e.g., ('Close', 'CW8.PA'))
                         if 'Close' in df_yf.columns.get_level_values(0): df_yf = df_yf['Close']
-                        elif 'Adj Close' in df_yf.columns.get_level_values(0): df_yf = df_yf['Adj Close']
-                    except: pass
-                
+                    except: pass                
                 # Force to DataFrame with 1 column named 'price'
                 if isinstance(df_yf, pd.Series): df_yf = df_yf.to_frame(name="price")
                 elif "Close" in df_yf.columns: df_yf = df_yf[["Close"]].rename(columns={"Close": "price"})
@@ -121,8 +118,10 @@ def calculate_wealth_evolution():
     
     if all_dates.empty and accounts.empty:
         return pl.DataFrame() # No data
-        
+    
     start_date = all_dates.min() if not all_dates.empty else pd.Timestamp(date.today())
+    if pd.isna(start_date):
+        start_date = pd.Timestamp(date.today())
     end_date = pd.Timestamp(date.today())
     
     # Create master timeline (Daily)
