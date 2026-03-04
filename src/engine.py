@@ -114,17 +114,19 @@ def calculate_wealth_evolution() -> pl.DataFrame:
     """
     # 1. LOAD ALL DATA (Into Pandas for the loop logic)
     with sqlite3.connect(get_db_path()) as conn:
-        accounts = pd.read_sql("SELECT name, initial_balance FROM accounts", conn)
+        visible_acc_query = "SELECT name FROM accounts WHERE is_visible = 1"
         
-        trans = pd.read_sql("SELECT date, account, amount, type FROM transactions WHERE is_excluded = 0", conn)
+        accounts = pd.read_sql("SELECT name, initial_balance FROM accounts WHERE is_visible = 1", conn)
+        
+        trans = pd.read_sql(f"SELECT date, account, amount, type FROM transactions WHERE is_excluded = 0 AND account IN ({visible_acc_query})", conn)
         trans['amount'] = pd.to_numeric(trans['amount'])
         
-        transfers = pd.read_sql("SELECT date, source_account, target_account, amount FROM transfers", conn)
+        transfers = pd.read_sql(f"SELECT date, source_account, target_account, amount FROM transfers WHERE source_account IN ({visible_acc_query}) AND target_account IN ({visible_acc_query})", conn)
         transfers['amount'] = pd.to_numeric(transfers['amount'])
         
-        investments = pd.read_sql("SELECT date, account, ticker, action, quantity, unit_price, fees FROM investments", conn)
+        investments = pd.read_sql(f"SELECT date, account, ticker, action, quantity, unit_price, fees FROM investments WHERE account IN ({visible_acc_query})", conn)
         investments[['quantity', 'unit_price', 'fees']] = investments[['quantity', 'unit_price', 'fees']].apply(pd.to_numeric)
-        
+
         # Get unique tickers to sync market data
         unique_tickers: List[str] = investments['ticker'].unique().tolist() if not investments.empty else[]
     

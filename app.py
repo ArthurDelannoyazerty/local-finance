@@ -32,15 +32,23 @@ if "current_page" not in st.session_state:
 # --- HELPER FUNCTIONS ---
 
 def get_accounts() -> pl.DataFrame:
-    """Retrieves all accounts and their initial balances."""
-    query: str = "SELECT name, initial_balance FROM accounts"
+    """Retrieves all VISIBLE accounts and their initial balances."""
+    query: str = "SELECT name, initial_balance FROM accounts WHERE is_visible = 1"
     try:
         with sqlite3.connect(get_db_path()) as conn:
-            df = pl.read_database(query, conn)
-            return df
+            return pl.read_database(query, conn)
     except Exception:
         return pl.DataFrame()
 
+def update_account_details(name: str, amount: float, is_visible: bool) -> None:
+    """Met à jour le solde, le type et la visibilité du compte."""
+    with sqlite3.connect(get_db_path()) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE accounts SET initial_balance = ?, is_visible = ? WHERE name = ?", 
+            (amount, int(is_visible), name)
+        )
+        conn.commit()
 
 def save_investment(
     date_inv: date, ticker: str, name: str, action: str, 
@@ -123,27 +131,34 @@ def render_import_page() -> None:
         
         st.divider()
         
-        df_acc = get_accounts()
+        with sqlite3.connect(get_db_path()) as conn:
+            # On récupère TOUS les comptes ici (même cachés) pour pouvoir les modifier
+            df_acc = pl.read_database("SELECT name, initial_balance,is_visible FROM accounts", conn)
+
         if not df_acc.is_empty():
             pdf_acc = df_acc.to_pandas()
+            
+            # Forcer la conversion en booléen pour la case à cocher
+            pdf_acc['is_visible'] = pdf_acc['is_visible'].astype(bool)
+
+
             edited_acc = st.data_editor(
                 pdf_acc, 
                 column_config={
                     "name": st.column_config.TextColumn("Compte", disabled=True),
-                    "initial_balance": st.column_config.NumberColumn("Solde Initial", format="%.2f €")
+                    "initial_balance": st.column_config.NumberColumn("Solde Initial", format="%.2f €"),
+                    "is_visible": st.column_config.CheckboxColumn("Visible", help="Décocher pour cacher ce compte des analyses")
                 },
                 hide_index=True,
+                use_container_width=True,
                 key="acc_editor"
             )
             
-            if st.button("Sauvegarder les soldes"):
+            if st.button("Sauvegarder la configuration"):
                 for _, row in edited_acc.iterrows():
-                    update_account_initial(row['name'], row['initial_balance'])
-                st.success("Soldes mis à jour !")
+                    update_account_details(row['name'], row['initial_balance'], row['is_visible'])
+                st.success("Configuration mise à jour !")
                 st.rerun()
-        else:
-            st.warning("Aucun compte détecté. Importez d'abord des fichiers.")
-
 
 def render_dashboard_page() -> None:
     """Renders the Cash Flow and Budget Dashboard page."""

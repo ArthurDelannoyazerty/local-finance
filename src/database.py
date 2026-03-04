@@ -77,7 +77,8 @@ def init_db() -> None:
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS accounts (
             name TEXT PRIMARY KEY,
-            initial_balance REAL DEFAULT 0.0
+            initial_balance REAL DEFAULT 0.0,
+            is_visible BOOLEAN DEFAULT 1
         )
     """)
 

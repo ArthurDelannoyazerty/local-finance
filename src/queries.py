@@ -4,24 +4,17 @@ from src.database import get_db_path
 
 
 def get_transactions_df() -> pl.DataFrame:
+    query: str = """
+        SELECT * FROM transactions 
+        WHERE is_excluded = 0 
+        AND account IN (SELECT name FROM accounts WHERE is_visible = 1)
+        ORDER BY date DESC
     """
-    Retrieves all non-excluded transactions from the database.
-    
-    Returns:
-        pl.DataFrame: A Polars DataFrame containing the transactions, 
-                      ordered by date descending.
-    """
-    query: str = "SELECT * FROM transactions WHERE is_excluded = 0 ORDER BY date DESC"
-    
     with sqlite3.connect(get_db_path()) as conn:
         df = pl.read_database(query, conn)
-        
-    # Safely cast the 'date' column to Date type if data exists
     if not df.is_empty() and "date" in df.columns:
         df = df.with_columns(pl.col("date").cast(pl.Date))
-        
     return df
-
 
 def get_investments_df() -> pl.DataFrame:
     """
@@ -33,6 +26,7 @@ def get_investments_df() -> pl.DataFrame:
     query: str = """
         SELECT id, date, action, ticker, name, quantity, unit_price, fees, account, comment 
         FROM investments 
+        WHERE account IN (SELECT name FROM accounts WHERE is_visible = 1)
         ORDER BY date DESC
     """
     
