@@ -62,7 +62,7 @@ def save_investment(
         cursor.execute("""
             INSERT INTO investments (id, date, ticker, name, action, quantity, unit_price, fees, account, comment)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (str(uuid.uuid4()), date_inv, ticker, name, action, qty, price, fees, account, final_comment))
+        """, (str(uuid.uuid4()), date_inv, ticker.strip(), name, action, qty, price, fees, account, final_comment))
         conn.commit()
 
 def delete_investments(ids_to_delete: List[str]) -> None:
@@ -388,12 +388,12 @@ def render_wealth_page() -> None:
                 i_action = "BUY" if "Achat" in action_label else "SELL"
                 
             with f2:
-                i_ticker = st.text_input("Ticker (ex: CW8.PA)", value="CW8.PA")
-                i_name = st.text_input("Nom du produit", value="Amundi MSCI World")
+                i_ticker = st.text_input("Ticker (ex: CW8.PA)", value="")
+                i_name = st.text_input("Nom du produit", value="")
                 
             with f3:
-                i_qty = st.number_input("Quantité", min_value=0.0001, step=1.0, format="%.4f")
-                i_price = st.number_input("Prix Unitaire", min_value=0.0001, step=0.1, format="%.2f")
+                i_qty = st.number_input("Quantité", min_value=0.0, step=1.0, format="%.6f")
+                i_price = st.number_input("Prix Unitaire", min_value=0.0, step=0.1, format="%.6f")
                 
             with f4:
                 i_acc = st.selectbox("Compte impacté (Cash)", account_options, index=default_index, disabled=not accounts_ready)
