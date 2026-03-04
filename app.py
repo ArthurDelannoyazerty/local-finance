@@ -173,12 +173,13 @@ def render_dashboard_page() -> None:
         
         with col_shortcuts:
             st.caption("Raccourcis rapides")
-            b1, b2, b3, b4 = st.columns(4)
+            b1, b2, b3, b4, b5 = st.columns(5)
             if b1.button("1 Mois", width="stretch"): update_date_range(days=30)
             if b2.button("3 Mois", width="stretch"): update_date_range(days=90)
-            if b3.button("YTD (Année)", width="stretch", help="Depuis le 1er Janvier"): 
+            if b3.button("6 Mois", width="stretch"): update_date_range(days=180)
+            if b4.button("YTD (Année)", width="stretch", help="Depuis le 1er Janvier"): 
                 update_date_range(start=date(date.today().year, 1, 1))
-            if b4.button("Tout", width="stretch"):
+            if b5.button("Tout", width="stretch"):
                 update_date_range(start=df["date"].min())
 
             years: List[int] = sorted(df["date"].dt.year().unique().to_list(), reverse=True)
