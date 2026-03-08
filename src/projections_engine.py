@@ -25,19 +25,16 @@ class ProjectionConfig:
         data = json.loads(json_str)
         return ProjectionConfig(**data)
 
-def calculate_deterministic_projection(config: ProjectionConfig) -> pd.DataFrame:
-    """Calcul linéaire classique (sans volatilité aléatoire)."""
+def calculate_deterministic_projection(config: ProjectionConfig, stop_month: int = None, monthly_expenses: float = 0) -> pd.DataFrame:
     months = config.years * 12
     monthly_return = (1 + config.annual_return_rate) ** (1/12) - 1
     monthly_inflation = (1 + config.inflation_rate) ** (1/12) - 1
     
     data = []
-    
     current_capital = config.start_capital
     current_savings = config.monthly_savings
     total_invested = config.start_capital
     
-    # Gestion des événements (groupés par mois)
     events_map = {}
     if config.life_events:
         for event in config.life_events:
@@ -45,34 +42,33 @@ def calculate_deterministic_projection(config: ProjectionConfig) -> pd.DataFrame
             events_map[m_idx] = events_map.get(m_idx, 0) + event['amount']
 
     for m in range(1, months + 1):
-        # 1. Croissance du capital (Intérêts)
+        # 1. Croissance
         current_capital *= (1 + monthly_return)
         
-        # 2. Ajout de l'épargne
-        current_capital += current_savings
-        total_invested += current_savings
+        # 2. Flux de trésorerie (Épargne OU Retrait)
+        if stop_month and m >= stop_month:
+            current_savings = 0
+            # On retire les dépenses (indexées sur l'inflation nominale)
+            current_withdrawal = monthly_expenses * ((1 + monthly_inflation) ** m)
+            current_capital -= current_withdrawal
+        else:
+            current_capital += current_savings
+            total_invested += current_savings
         
-        # 3. Gestion événements exceptionnels
+        # 3. Événements
         if m in events_map:
-            impact = events_map[m]
-            current_capital += impact
-            # On ne change pas "total_invested" pour les retraits, sauf si c'est un nouvel investissement
-            if impact > 0:
-                total_invested += impact
+            current_capital += events_map[m]
 
-        # 4. Augmentation annuelle de l'épargne (Salaire)
-        if m % 12 == 0:
+        # 4. Augmentation salaire
+        if m % 12 == 0 and (not stop_month or m < stop_month):
             current_savings *= (1 + config.salary_growth_rate)
 
-        # 5. Calcul Ajusté Inflation (Valeur Réelle)
         deflator = (1 + monthly_inflation) ** m
-        real_capital = current_capital / deflator
-        
         data.append({
             "Month": m,
             "Year": m / 12,
             "Nominal Capital": current_capital,
-            "Real Capital": real_capital,
+            "Real Capital": current_capital / deflator,
             "Total Invested": total_invested
         })
         

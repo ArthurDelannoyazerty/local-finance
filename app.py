@@ -834,23 +834,20 @@ def delete_scenario_db(s_id: str):
 
 
 # --- PAGE RENDERING: PROJECTIONS ---
-
-
-# File: /app.py
-
 def render_projections_page():
     st.header("🔮 Projections Futures & FIRE")
 
+    # --- 1. CHARGEMENT DONNÉES ---
     metrics = get_current_metrics()
-    
     if "life_events" not in st.session_state:
-        st.session_state["life_events"] =[]
+        st.session_state["life_events"] = []
 
-    # --- SIDEBAR ---
+    # --- 2. SIDEBAR ---
     with st.sidebar:
         st.subheader("👤 Profil")
         current_age = st.number_input("Votre Âge", 18, 70, 25)
-        retire_age = st.number_input("Âge Retraite Classique", 50, 75, 65, help="Âge auquel vous toucheriez votre retraite si vous arrêtiez d'épargner aujourd'hui (pour calcul Coast FIRE).")
+        retire_age_ref = st.number_input("Âge Retraite Classique", 50, 75, 65, help="Utilisé pour le calcul du Coast FIRE.")
+        years_to_sim = st.slider("Horizon de simulation (Années)", 5, 65, 45)
         
         st.divider()
         st.subheader("💰 Paramètres Initiaux")
@@ -859,13 +856,13 @@ def render_projections_page():
         
         st.divider()
         st.subheader("🌍 Hypothèses Macro")
-        years = st.slider("Horizon de simulation (Années)", 5, 45, (retire_age - current_age) + 5)
         inflation = st.slider("Inflation Moyenne (%)", 0.0, 5.0, 2.0, 0.1)
-        salary_growth = st.slider("Augmentation Épargne/An (%)", 0.0, 5.0, 1.0, 0.1)
+        salary_growth = st.slider("Augmentation Épargne/An (%)", 0.0, 5.0, 1.5, 0.1)
 
-    # --- TABS ---
+    # --- 3. TABS ---
     tab_sim, tab_events, tab_monte = st.tabs(["📈 Simulateur & FIRE", "🏠 Événements", "🎲 Monte Carlo"])
 
+    # --- TAB 1: SIMULATEUR ---
     with tab_sim:
         col_param, col_graph = st.columns([1, 3])
         
@@ -874,240 +871,154 @@ def render_projections_page():
             annual_return = st.slider("Rendement Annuel (%)", 0.0, 15.0, 7.0, 0.1) / 100
             tax_rate = st.slider("Taxe Plus-Values (%)", 0.0, 30.0, 30.0, 0.1) / 100
             
+            st.markdown("#### 🏁 Arrêt de l'activité")
+            stop_working = st.checkbox("Simuler un arrêt de travail", value=False)
+            stop_age = st.slider("Âge d'arrêt", current_age, current_age + years_to_sim, current_age + 15, disabled=not stop_working)
+            
             st.markdown("#### 🔥 Objectifs FIRE")
             monthly_expenses = st.number_input("Dépenses Mensuelles (€)", value=float(metrics["expenses"]), step=100.0)
             
             lean_ratio = 0.8
             fat_ratio = 1.5
             
-            show_coast = st.checkbox(
-                "Montrer Coast FIRE", 
-                value=True, 
-                help="Montant nécessaire AUJOURD'HUI pour atteindre votre cible à la retraite (65 ans) sans ne plus jamais rien épargner."
-            )
-            show_lean = st.checkbox(
-                f"Montrer Lean FIRE ({monthly_expenses*lean_ratio:,.0f}€/mois)", 
-                value=False,
-                help="Le mode 'Frugal'. Couvre uniquement vos dépenses vitales (défini à 80% de vos dépenses normales)."
-            )
-            show_fat = st.checkbox(
-                f"Montrer Fat FIRE ({monthly_expenses*fat_ratio:,.0f}€/mois)", 
-                value=False,
-                help="Le mode 'Luxe'. Permet de voyager et d'augmenter votre train de vie (défini à 150% de vos dépenses normales)."
-            )
-
-            st.markdown("#### 🎯 Jalons Spéciaux")
-            show_tipping = st.checkbox(
-                "Montrer le Point de Bascule", 
-                value=True, 
-                help="Le moment où les intérêts générés chaque mois par votre capital dépassent votre effort d'épargne mensuel. Votre argent travaille plus dur que vous !"
-            )
-            
-            st.markdown("---")
+            show_coast = st.checkbox("Coast FIRE", value=False, help="Capital requis aujourd'hui pour être FIRE à l'âge de la retraite classique sans plus rien épargner.")
+            show_lean = st.checkbox(f"Lean FIRE ({monthly_expenses*lean_ratio:,.0f}€)", value=False, help="Mode frugal (80% des dépenses).")
+            show_fat = st.checkbox(f"Fat FIRE ({monthly_expenses*fat_ratio:,.0f}€)", value=False, help="Mode luxe (150% des dépenses).")
             show_real = st.checkbox("Ajuster à l'inflation (Réel)", value=True)
 
+            st.markdown("#### 📍 Jalons & Spéciaux")
+            show_100k = st.checkbox("Jalon 100k", value=True)
+            show_500k = st.checkbox("Jalon 500k", value=False)
+            show_1m = st.checkbox("Jalon 1M", value=False)
+            show_tipping = st.checkbox("Point de Bascule", value=True, help="Quand vos intérêts mensuels > votre épargne mensuelle.")
+
         with col_graph:
-            # 1. Calcul Projection Principale
+            # 1. Calcul via moteur
+            stop_month = (stop_age - current_age) * 12 if stop_working else None
             config = ProjectionConfig(
-                start_capital=start_capital,
-                monthly_savings=monthly_savings,
-                years=years,
-                annual_return_rate=annual_return,
-                inflation_rate=inflation / 100,
-                salary_growth_rate=salary_growth / 100,
-                life_events=st.session_state["life_events"]
+                start_capital=start_capital, monthly_savings=monthly_savings, years=years_to_sim,
+                annual_return_rate=annual_return, inflation_rate=inflation / 100,
+                salary_growth_rate=salary_growth / 100, life_events=st.session_state["life_events"]
             )
-            df = calculate_deterministic_projection(config)
+            df = calculate_deterministic_projection(config, stop_month=stop_month, monthly_expenses=monthly_expenses)
             
-            # 2. Calcul Fiscalité
+            # Fiscalité & Net
             df['Gains'] = df['Nominal Capital'] - df['Total Invested']
             df['Tax'] = df['Gains'].apply(lambda x: x * tax_rate if x > 0 else 0)
             df['Net Nominal'] = df['Nominal Capital'] - df['Tax']
-            deflator = (1 + (inflation/100)) ** (df['Month']/12)
+            deflator = (1 + (inflation/100)) ** df['Year']
             df['Net Real'] = df['Net Nominal'] / deflator
             
             y_col = 'Net Real' if show_real else 'Net Nominal'
             
-            # 3. Calcul du Point de Bascule (Tipping Point)
-            # Taux de rendement mensuel
-            monthly_return = (1 + annual_return) ** (1/12) - 1
-            # Tableau de l'épargne mensuelle (qui augmente avec le salaire chaque année)
-            current_savings_array = monthly_savings * (1 + (salary_growth/100)) ** ((df['Month'] - 1) // 12)
-            # Tableau des gains passifs mensuels générés par le capital
-            passive_gains_array = df['Nominal Capital'] * monthly_return
-            
-            # On cherche le premier mois où Gains Passifs >= Épargne Mensuelle
-            tipping_df = df[passive_gains_array >= current_savings_array]
-            tipping_age = None
-            if not tipping_df.empty:
-                tipping_age = current_age + tipping_df.iloc[0]['Year']
-
-            # 4. KPI
-            fire_number_real = (monthly_expenses * 12) / 0.04
+            # KPI
+            fire_target_real = (monthly_expenses * 12) / 0.04
             final_wealth = df[y_col].iloc[-1]
-            passive_income = (final_wealth * 0.04) / 12
-            
             c1, c2, c3 = st.columns(3)
             c1.metric("Patrimoine Net Final", f"{final_wealth:,.0f} €")
-            c2.metric("Rente Mensuelle (4%)", f"{passive_income:,.0f} €")
+            c2.metric("Rente Mensuelle (4%)", f"{(final_wealth * 0.04) / 12:,.0f} €")
             
-            reached = df[df['Net Real'] >= fire_number_real]
+            reached = df[df['Net Real'] >= fire_target_real]
             if not reached.empty:
-                years_fire = reached.iloc[0]['Year']
-                age_fire = current_age + years_fire
-                c3.metric("FIRE Standard", f"{age_fire:.1f} ans", delta=f"dans {years_fire:.1f} ans")
+                age_fire = current_age + reached.iloc[0]['Year']
+                c3.metric("FIRE Standard", f"{age_fire:.1f} ans")
             else:
                 c3.metric("FIRE Standard", "Non atteint")
 
             # --- GRAPHIQUE ---
             fig = go.Figure()
-            
-            # A. Courbe Principale
-            fig.add_trace(go.Scatter(
-                x=df["Year"] + current_age, 
-                y=df[y_col],
-                mode='lines',
-                name='Votre Patrimoine (Net)',
-                line=dict(color='#636EFA', width=4),
-                hovertemplate='Âge: %{x:.1f}<br>Patrimoine: %{y:,.0f} €<extra></extra>'
-            ))
+            fig.add_trace(go.Scatter(x=df["Year"] + current_age, y=df[y_col], mode='lines', name='Patrimoine Net', line=dict(color='#636EFA', width=4), hovertemplate='Âge: %{x:.1f}<br>Patrimoine: %{y:,.0f} €<extra></extra>'))
 
-            # B. Les Lignes FIRE
-            def add_target_line(amount_real, name, color, visible, style='dash'):
+            # Lignes FIRE & Jalons
+            def add_h_line(amount, name, color, visible, style='dash'):
                 if not visible: return
-                if show_real:
-                    y_vals =[amount_real] * len(df)
-                else:
-                    y_vals =[amount_real * ((1 + inflation/100)**y) for y in df["Year"]]
-                
-                fig.add_trace(go.Scatter(
-                    x=df["Year"] + current_age, y=y_vals, mode='lines', name=name,
-                    line=dict(color=color, dash=style, width=2),
-                    hovertemplate=f'{name}: %{{y:,.0f}} €<extra></extra>'
-                ))
+                val = amount if show_real else [amount * ((1 + inflation/100)**y) for y in df["Year"]]
+                fig.add_trace(go.Scatter(x=df["Year"] + current_age, y=val if isinstance(val, list) else [val]*len(df), 
+                                         mode='lines', name=name, line=dict(color=color, dash=style, width=2)))
 
-            add_target_line(fire_number_real, "Standard FIRE (4%)", "#00CC96", True) 
-            add_target_line(fire_number_real * lean_ratio, "Lean FIRE", "#FFA15A", show_lean, 'dot')
-            add_target_line(fire_number_real * fat_ratio, "Fat FIRE", "#AB63FA", show_fat, 'dot')
+            add_h_line(fire_target_real, "Standard FIRE (4%)", "#00CC96", True) 
+            add_h_line(fire_target_real * lean_ratio, "Lean FIRE", "#FFA15A", show_lean, 'dot')
+            add_h_line(fire_target_real * fat_ratio, "Fat FIRE", "#AB63FA", show_fat, 'dot')
+            
+            add_h_line(100000, "100k", "rgba(255,255,255,0.2)", show_100k, 'dot')
+            add_h_line(500000, "500k", "rgba(255,255,255,0.2)", show_500k, 'dot')
+            add_h_line(1000000, "1M", "rgba(255,255,255,0.2)", show_1m, 'dot')
 
-            # C. La Courbe Coast FIRE (Sans l'aire jaune)
+            # Point de Bascule
+            if show_tipping:
+                monthly_ret = (1 + annual_return) ** (1/12) - 1
+                sav_arr = monthly_savings * (1 + (salary_growth/100)) ** ((df['Month'] - 1) // 12)
+                tipping_idx = df[df['Nominal Capital'] * monthly_ret >= sav_arr]
+                if not tipping_idx.empty:
+                    fig.add_vline(x=current_age + tipping_idx.iloc[0]['Year'], line_dash="dot", line_color="#00BFFF", annotation_text="Bascule")
+
+            # Coast FIRE
             if show_coast:
-                real_return_rate = (1 + annual_return) / (1 + (inflation/100)) - 1
-                rate_used = real_return_rate if show_real else annual_return
-                target_used = fire_number_real
-                
-                if not show_real:
-                     target_at_65_nominal = fire_number_real * ((1 + inflation/100)**(retire_age - current_age))
-                     coast_curve = []
-                     for y in df["Year"]:
-                        age = current_age + y
-                        years_left = retire_age - age
-                        req = target_at_65_nominal / ((1 + annual_return)**years_left) if years_left > 0 else target_at_65_nominal
-                        coast_curve.append(req)
-                else:
-                    coast_curve = []
-                    for y in df["Year"]:
-                        age = current_age + y
-                        years_left = retire_age - age
-                        req = target_used / ((1 + rate_used) ** years_left) if years_left > 0 else target_used
-                        coast_curve.append(req)
+                real_ret = (1 + annual_return) / (1 + (inflation/100)) - 1
+                rate = real_ret if show_real else annual_return
+                coast_curve = []
+                for y in df["Year"]:
+                    age = current_age + y
+                    y_left = retire_age_ref - age
+                    target = fire_target_real if show_real else fire_target_real * ((1 + inflation/100)**(retire_age_ref - current_age))
+                    coast_curve.append(target / ((1 + rate)**y_left) if y_left > 0 else target)
+                fig.add_trace(go.Scatter(x=df["Year"] + current_age, y=coast_curve, mode='lines', name='Coast FIRE', line=dict(color='#FECB52', dash='longdash')))
 
-                fig.add_trace(go.Scatter(
-                    x=df["Year"] + current_age,
-                    y=coast_curve,
-                    mode='lines',
-                    name='Coast FIRE (Min requis)',
-                    line=dict(color='#FECB52', width=2, dash='longdash'),
-                    hovertemplate='Coast Threshold: %{y:,.0f} €<extra></extra>'
-                ))
-                
-            # D. Le Point de Bascule (Tipping Point)
-            if show_tipping and tipping_age is not None:
-                fig.add_vline(
-                    x=tipping_age,
-                    line_width=2,
-                    line_dash="dot",
-                    line_color="#00BFFF", # Deep Sky Blue (Très visible)
-                    annotation_text=f"Point de Bascule ({tipping_age:.1f} ans)",
-                    annotation_position="bottom right",
-                    annotation_font=dict(color="#00BFFF", size=12)
-                )
+            if stop_working:
+                fig.add_vline(x=stop_age, line_width=3, line_color="#EF553B", annotation_text="ARRÊT TRAVAIL")
 
-            fig.update_layout(
-                title="Trajectoire vers l'Indépendance",
-                xaxis_title="Votre Âge",
-                yaxis_title="Patrimoine Net (€)",
-                height=600,
-                hovermode="x unified",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
+            fig.update_layout(title="Trajectoire de vie", xaxis_title="Votre Âge", yaxis_title="Capital Net (€)", height=600, hovermode="x unified")
             st.plotly_chart(fig, width="stretch")
 
-    # --- TAB EVENTS ---
+    # --- TAB 2: EVENTS ---
     with tab_events:
-        st.info("Ajoutez des impacts financiers futurs.")
+        st.info("Ajoutez des impacts financiers futurs (ex: Achat voiture, Apport immobilier, Héritage).")
         c_evt1, c_evt2, c_evt3, c_evt4 = st.columns([2, 2, 2, 1])
-        with c_evt1: evt_name = st.text_input("Nom", "Achat Voiture")
-        with c_evt2: evt_year = st.number_input("Année", 1, years, 5)
-        with c_evt3: evt_amount = st.number_input("Montant", value=-15000.0, step=1000.0)
-        with c_evt4: 
+        with c_evt1:
+            evt_name = st.text_input("Nom de l'événement", "Achat Voiture")
+        with c_evt2:
+            # CORRECTION ICI : 'years_to_sim' au lieu de 'years'
+            evt_year = st.number_input("Dans combien d'années ?", 1, years_to_sim, 5)
+        with c_evt3:
+            evt_amount = st.number_input("Montant (+ ou -)", value=-15000.0, step=1000.0)
+        with c_evt4:
             st.write("")
             st.write("")
             if st.button("Ajouter"):
                 st.session_state["life_events"].append({"name": evt_name, "year": evt_year, "amount": evt_amount})
         
         if st.session_state["life_events"]:
+            st.write("##### Événements planifiés :")
             st.dataframe(pd.DataFrame(st.session_state["life_events"]), hide_index=True)
             if st.button("🗑️ Tout effacer"):
-                st.session_state["life_events"] =[]
+                st.session_state["life_events"] = []
                 st.rerun()
 
-    # --- TAB MONTE CARLO ---
+    # --- TAB 3: MONTE CARLO ---
     with tab_monte:
         st.markdown("### 🎲 Analyse de Risque")
-        st.markdown("""
-        Cette simulation lance des centaines de scénarios possibles en intégrant la **volatilité** (les hauts et les bas) des marchés financiers.
-        *   **Ligne du haut (Max) :** Le scénario "chanceux" où les marchés performent exceptionnellement bien.
-        *   **Zone bleue :** 80% des scénarios probables se trouvent ici.
-        *   **Ligne du bas (Min) :** Le scénario "catastrophe" (krach boursier majeur, crise longue).
-        """)
-        
         col_mc_1, col_mc_2 = st.columns([1, 3])
         with col_mc_1:
             volatility = st.slider("Volatilité Marché (%)", 5.0, 30.0, 15.0, 1.0) / 100
             nb_sim = st.select_slider("Nombre Simulations", options=[50, 100, 200, 500], value=200)
-        
         with col_mc_2:
             if st.button("Lancer la simulation", type="primary"):
                 mc_config = ProjectionConfig(
-                    start_capital=start_capital, monthly_savings=monthly_savings, years=years,
+                    start_capital=start_capital, monthly_savings=monthly_savings, years=years_to_sim,
                     annual_return_rate=annual_return, inflation_rate=inflation / 100,
                     salary_growth_rate=salary_growth / 100, volatility=volatility,
                     life_events=st.session_state["life_events"]
                 )
                 df_mc = calculate_monte_carlo(mc_config, n_simulations=nb_sim)
-                
                 fig_mc = go.Figure()
-                
-                # Zone 10-90%
-                fig_mc.add_trace(go.Scatter(
-                    x=pd.concat([df_mc['Year'] + current_age, (df_mc['Year'] + current_age)[::-1]]),
-                    y=pd.concat([df_mc['P90 (Optimiste)'], df_mc['P10 (Pessimiste)'][::-1]]),
-                    fill='toself', fillcolor='rgba(0,176,246,0.2)', 
-                    line=dict(color='rgba(255,255,255,0)'), 
-                    name='Zone Probable (80% des cas)',
-                    hoverinfo='skip'
-                ))
-                
-                # Lignes spécifiques (L'axe X est converti en Âge ici aussi)
-                fig_mc.add_trace(go.Scatter(x=df_mc['Year'] + current_age, y=df_mc['P90 (Optimiste)'], mode='lines', name='Scénario Optimiste (Top 10%)', line=dict(color='#636EFA', dash='dot', width=1)))
-                fig_mc.add_trace(go.Scatter(x=df_mc['Year'] + current_age, y=df_mc['P50 (Médian)'], mode='lines', name='Scénario Médian', line=dict(color='#00CC96', width=3)))
-                fig_mc.add_trace(go.Scatter(x=df_mc['Year'] + current_age, y=df_mc['P10 (Pessimiste)'], mode='lines', name='Scénario Pessimiste (Bottom 10%)', line=dict(color='#EF553B', dash='dot', width=1)))
-                
-                fig_mc.update_layout(height=500, title="Cône d'incertitude", xaxis_title="Votre Âge", yaxis_title="Capital (€)", hovermode="x unified")
+                fig_mc.add_trace(go.Scatter(x=pd.concat([df_mc['Year'] + current_age, (df_mc['Year'] + current_age)[::-1]]),
+                                            y=pd.concat([df_mc['P90 (Optimiste)'], df_mc['P10 (Pessimiste)'][::-1]]),
+                                            fill='toself', fillcolor='rgba(0,176,246,0.2)', line=dict(color='rgba(255,255,255,0)'), name='Zone 80%'))
+                fig_mc.add_trace(go.Scatter(x=df_mc['Year'] + current_age, y=df_mc['P50 (Médian)'], mode='lines', name='Médian', line=dict(color='#00CC96', width=3)))
+                fig_mc.update_layout(height=500, title="Cône d'incertitude", xaxis_title="Votre Âge", yaxis_title="Capital (€)")
                 st.plotly_chart(fig_mc, width="stretch")
-                
-                                
+
+
 
 # --- MAIN APP ROUTING ---
 
