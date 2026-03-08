@@ -1,5 +1,7 @@
 import hashlib
 import sqlite3
+import calendar
+from datetime import date
 from typing import Set, Dict, Any, BinaryIO
 
 import fastexcel
@@ -146,16 +148,42 @@ def process_sheet(df: pl.DataFrame, type_import: str, conn: sqlite3.Connection) 
             if row['comment'] is None: 
                 row['comment'] = ""
 
+        # 1. Insertion des nouvelles lignes
         cursor.executemany("""
             INSERT OR IGNORE INTO transactions 
             (id, date, category, account, amount, currency, comment, type, is_excluded)
             VALUES (:id, :date, :category, :account, :amount, :currency, :comment, :type, :is_excluded)
         """, rows)
         
-        # Ensure related accounts exist
+        # 2. Suppression des lignes qui n'existent plus dans le fichier source (SYNCHRONISATION)
+        cursor.execute("DROP TABLE IF EXISTS temp_imported_ids")
+        cursor.execute("CREATE TEMPORARY TABLE temp_imported_ids (id TEXT PRIMARY KEY)")
+        cursor.executemany("INSERT INTO temp_imported_ids (id) VALUES (?)", [(r['id'],) for r in rows])
+        
+        dates = [r['date'] for r in rows if r['date'] is not None]
+        if dates:
+            min_d = min(dates)
+            max_d = max(dates)
+            # On englobe les mois complets impactés par l'import pour la synchronisation
+            start_date = date(min_d.year, min_d.month, 1)
+            last_day = calendar.monthrange(max_d.year, max_d.month)[1]
+            end_date = date(max_d.year, max_d.month, last_day)
+            
+            accounts_in_file = list(set(r['account'] for r in rows if r.get('account')))
+            if accounts_in_file:
+                placeholders = ",".join(["?"] * len(accounts_in_file))
+                delete_query = f"""
+                    DELETE FROM transactions 
+                    WHERE type = ? 
+                    AND account IN ({placeholders})
+                    AND id NOT IN (SELECT id FROM temp_imported_ids)
+                """
+                cursor.execute(delete_query, [t_type] + accounts_in_file +[start_date, end_date])
+                
+        cursor.execute("DROP TABLE IF EXISTS temp_imported_ids")
+        
         accounts = set(clean_df["account"].unique().to_list())
         ensure_accounts_exist(conn, accounts)
-        
         rows_inserted = len(rows)
 
     elif type_import == 'Transferts':
@@ -173,13 +201,43 @@ def process_sheet(df: pl.DataFrame, type_import: str, conn: sqlite3.Connection) 
             if row['comment'] is None: 
                 row['comment'] = ""
 
+        # 1. Insertion des nouvelles lignes
         cursor.executemany("""
             INSERT OR IGNORE INTO transfers
             (id, date, source_account, target_account, amount, comment)
             VALUES (:id, :date, :source_account, :target_account, :amount, :comment)
         """, rows)
         
-        # Ensure related accounts exist
+        # 2. Suppression des lignes retirées (SYNCHRONISATION)
+        cursor.execute("DROP TABLE IF EXISTS temp_imported_ids")
+        cursor.execute("CREATE TEMPORARY TABLE temp_imported_ids (id TEXT PRIMARY KEY)")
+        cursor.executemany("INSERT INTO temp_imported_ids (id) VALUES (?)", [(r['id'],) for r in rows])
+        
+        dates = [r['date'] for r in rows if r['date'] is not None]
+        if dates:
+            min_d = min(dates)
+            max_d = max(dates)
+            start_date = date(min_d.year, min_d.month, 1)
+            last_day = calendar.monthrange(max_d.year, max_d.month)[1]
+            end_date = date(max_d.year, max_d.month, last_day)
+            
+            sources = [r['source_account'] for r in rows if r.get('source_account')]
+            targets = [r['target_account'] for r in rows if r.get('target_account')]
+            accounts_in_file = list(set(sources + targets))
+            
+            if accounts_in_file:
+                placeholders = ",".join(["?"] * len(accounts_in_file))
+                delete_query = f"""
+                    DELETE FROM transfers 
+                    WHERE (source_account IN ({placeholders}) OR target_account IN ({placeholders}))
+                      AND date >= ? 
+                      AND date <= ?
+                      AND id NOT IN (SELECT id FROM temp_imported_ids)
+                """
+                cursor.execute(delete_query, accounts_in_file + accounts_in_file + [start_date, end_date])
+                
+        cursor.execute("DROP TABLE IF EXISTS temp_imported_ids")
+        
         sources = set(clean_df["source_account"].unique().to_list())
         targets = set(clean_df["target_account"].unique().to_list())
         ensure_accounts_exist(conn, sources.union(targets))
