@@ -134,6 +134,16 @@ def init_db() -> None:
             PRIMARY KEY (date, ticker)
         )
     """)
+
+    # 6. Projections Table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS projections (
+            id TEXT PRIMARY KEY,
+            name TEXT,
+            created_at DATE,
+            parameters_json TEXT
+        )
+    """)
     
     conn.commit()
     conn.close()

@@ -1,18 +1,24 @@
-import uuid
+import json
 import sqlite3
+import uuid
 from datetime import date, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict
 
-import streamlit as st
-import polars as pl
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import polars as pl
+import streamlit as st
 
-from src.database import init_db, get_db_path
-from src.importer import import_excel_file 
-from src.queries import get_transactions_df, get_investments_df
+from src.database import get_db_path, init_db
 from src.engine import calculate_wealth_evolution, get_detailed_snapshot
+from src.importer import import_excel_file
+from src.projections_engine import (
+    ProjectionConfig,
+    calculate_deterministic_projection,
+    calculate_monte_carlo,
+)
+from src.queries import get_investments_df, get_transactions_df
 
 # --- SETUP & INITIALIZATION ---
 st.set_page_config(
@@ -773,6 +779,247 @@ def render_market_map_page() -> None:
                 st.dataframe(viz_df)
 
 
+
+def get_current_metrics() -> Dict[str, float]:
+    """Récupère le patrimoine actuel et l'épargne moyenne des 6 derniers mois."""
+    # 1. Patrimoine Actuel
+    snapshot = get_detailed_snapshot(date.today())
+    current_wealth = snapshot['Value'].sum() if not snapshot.empty else 0.0
+    
+    # 2. Épargne Moyenne (Revenus - Dépenses sur 6 mois)
+    start_dt = date.today() - timedelta(days=180)
+    df_tx = get_transactions_df()
+    
+    avg_savings = 500.0 # Valeur par défaut
+    
+    if not df_tx.is_empty():
+        df_recent = df_tx.filter(pl.col("date") >= start_dt)
+        if not df_recent.is_empty():
+            inc = df_recent.filter(pl.col("type") == "INCOME")["amount"].sum()
+            exp = df_recent.filter(pl.col("type") == "EXPENSE")["amount"].sum()
+            total_savings = inc - exp
+            avg_savings = total_savings / 6
+            if avg_savings < 0: avg_savings = 0 # Éviter le négatif par défaut
+            
+    # 3. Dépenses Mensuelles Moyennes (pour FIRE)
+    avg_expenses = 1500.0
+    if not df_tx.is_empty():
+         df_recent = df_tx.filter(pl.col("date") >= start_dt)
+         total_exp = df_recent.filter(pl.col("type") == "EXPENSE")["amount"].sum()
+         if total_exp > 0:
+             avg_expenses = total_exp / 6
+
+    return {
+        "wealth": current_wealth, 
+        "savings": avg_savings,
+        "expenses": avg_expenses
+    }
+
+def save_scenario_db(name: str, config: ProjectionConfig):
+    with sqlite3.connect(get_db_path()) as conn:
+        conn.execute(
+            "INSERT INTO projections (id, name, created_at, parameters_json) VALUES (?, ?, ?, ?)",
+            (str(uuid.uuid4()), name, date.today(), config.to_json())
+        )
+        conn.commit()
+
+def load_scenarios_db() -> pd.DataFrame:
+    with sqlite3.connect(get_db_path()) as conn:
+        return pd.read_sql("SELECT * FROM projections ORDER BY created_at DESC", conn)
+
+def delete_scenario_db(s_id: str):
+    with sqlite3.connect(get_db_path()) as conn:
+        conn.execute("DELETE FROM projections WHERE id = ?", (s_id,))
+        conn.commit()
+
+
+# --- PAGE RENDERING: PROJECTIONS ---
+
+
+def render_projections_page():
+    st.header("🔮 Projections Futures & FIRE")
+
+    # --- 1. CHARGEMENT DONNÉES & INIT SESSION STATE ---
+    metrics = get_current_metrics()
+    
+    if "life_events" not in st.session_state:
+        st.session_state["life_events"] = []
+
+    # --- 2. FONCTION DE CHARGEMENT DE SCÉNARIO ---
+    def load_scenario_into_state(json_str: str):
+        """Parse le JSON et met à jour les widgets via session_state."""
+        try:
+            config = ProjectionConfig.from_json(json_str)
+            
+            # Mise à jour des clés des widgets (Inputs)
+            st.session_state["proj_capital"] = float(config.start_capital)
+            st.session_state["proj_savings"] = float(config.monthly_savings)
+            st.session_state["proj_years"] = int(config.years)
+            
+            # Attention : Les pourcentages sont stockés en 0.05 (float) mais affichés en 5.0 (slider)
+            st.session_state["proj_inflation"] = float(config.inflation_rate * 100)
+            st.session_state["proj_salary"] = float(config.salary_growth_rate * 100)
+            st.session_state["proj_return"] = float(config.annual_return_rate * 100)
+            st.session_state["proj_volatility"] = float(config.volatility * 100)
+            
+            # Mise à jour des événements de vie
+            st.session_state["life_events"] = config.life_events if config.life_events else []
+            
+            st.toast("✅ Scénario chargé avec succès !", icon="🚀")
+        except Exception as e:
+            st.error(f"Erreur lors du chargement : {e}")
+
+    # --- 3. SIDEBAR (AVEC CLÉS UNIQUES) ---
+    with st.sidebar:
+        st.subheader("Paramètres Initiaux")
+        # Note: On utilise 'key' pour pouvoir les modifier par code. 
+        # Si la key existe déjà dans session_state (via le chargement), Streamlit l'utilise.
+        # Sinon, il utilise 'value'.
+        
+        start_capital = st.number_input(
+            "Patrimoine Actuel (€)", 
+            value=float(metrics["wealth"]), 
+            step=1000.0, format="%.0f",
+            key="proj_capital"
+        )
+        
+        monthly_savings = st.number_input(
+            "Épargne Mensuelle (€)", 
+            value=float(metrics["savings"]), 
+            step=50.0, format="%.0f",
+            key="proj_savings"
+        )
+        
+        st.divider()
+        st.subheader("Hypothèses Macro")
+        years = st.slider("Horizon (Années)", 5, 40, 25, key="proj_years")
+        inflation = st.slider("Inflation Moyenne (%)", 0.0, 5.0, 2.0, 0.1, key="proj_inflation")
+        salary_growth = st.slider("Augmentation Épargne/An (%)", 0.0, 5.0, 1.0, 0.1, key="proj_salary")
+
+    # --- 4. TABS ---
+    tab_sim, tab_events, tab_monte = st.tabs([
+        "📈 Simulateur & FIRE", 
+        "🏠 Événements de Vie", 
+        "🎲 Monte Carlo"
+    ])
+
+    # --- TAB 1: SIMULATEUR ---
+    with tab_sim:
+        col_param_sim, col_graph_sim = st.columns([1, 3])
+        
+        with col_param_sim:
+            st.markdown("#### Rendement")
+            annual_return = st.slider("Rendement Annuel Moyen (%)", 0.0, 15.0, 7.0, 0.1, key="proj_return") / 100
+            
+            st.markdown("#### Objectif FIRE")
+            use_fire = st.checkbox("Afficher objectif FIRE", value=True)
+            monthly_expenses_today = st.number_input(
+                "Dépenses Mensuelles (Aujourd'hui) (€)", 
+                value=float(metrics["expenses"]), 
+                step=100.0,
+                disabled=not use_fire
+            )
+            swr_rate = st.selectbox(
+                "Taux de Retrait (SWR)", 
+                [0.03, 0.035, 0.04], 
+                index=2, 
+                format_func=lambda x: f"{x*100}%",
+                disabled=not use_fire
+            )
+            
+            fire_target_real = (monthly_expenses_today * 12) / swr_rate if use_fire else 0
+            
+            st.markdown("---")
+            show_real = st.checkbox("Ajuster à l'inflation (Pouvoir d'achat)", value=True)
+
+        with col_graph_sim:
+            # Construction de la config basée sur les inputs (qui sont liés au state)
+            config = ProjectionConfig(
+                start_capital=start_capital,
+                monthly_savings=monthly_savings,
+                years=years,
+                annual_return_rate=annual_return,
+                inflation_rate=inflation / 100,
+                salary_growth_rate=salary_growth / 100,
+                life_events=st.session_state["life_events"]
+            )
+            
+            df_proj = calculate_deterministic_projection(config)
+            
+            final_nom = df_proj['Nominal Capital'].iloc[-1]
+            final_real = df_proj['Real Capital'].iloc[-1]
+            
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Patrimoine Final (Nominal)", f"{final_nom:,.0f} €")
+            k2.metric("Pouvoir d'Achat (Réel)", f"{final_real:,.0f} €", delta_color="off")
+            
+            if use_fire:
+                reached = df_proj[df_proj['Real Capital'] >= fire_target_real]
+                if not reached.empty:
+                    years_needed = reached.iloc[0]['Year']
+                    date_fire = date.today() + timedelta(days=years_needed*365)
+                    k3.metric("Liberté Financière", f"{years_needed:.1f} ans", delta=date_fire.strftime("%b %Y"))
+                else:
+                    k3.metric("Liberté Financière", "Non atteinte", delta="Augmentez l'épargne", delta_color="inverse")
+
+            fig = go.Figure()
+            if show_real:
+                fig.add_trace(go.Scatter(x=df_proj["Year"], y=df_proj["Real Capital"], mode='lines', name='Patrimoine (Réel)', line=dict(color='#636EFA', width=3)))
+                fig.add_trace(go.Scatter(x=df_proj["Year"], y=df_proj["Total Invested"], mode='lines', name='Capital Versé', line=dict(dash='dash', color='gray')))
+                if use_fire:
+                    fig.add_hline(y=fire_target_real, line_dash="dot", line_color="#00CC96", annotation_text="Objectif FIRE (Fixe)")
+            else:
+                fig.add_trace(go.Scatter(x=df_proj["Year"], y=df_proj["Nominal Capital"], mode='lines', name='Patrimoine (Nominal)', line=dict(color='#EF553B', width=3)))
+                fig.add_trace(go.Scatter(x=df_proj["Year"], y=df_proj["Total Invested"], mode='lines', name='Capital Versé', line=dict(dash='dash', color='gray')))
+                if use_fire:
+                    fire_target_nominal_curve = [fire_target_real * ((1 + (inflation/100))**y) for y in df_proj["Year"]]
+                    fig.add_trace(go.Scatter(x=df_proj["Year"], y=fire_target_nominal_curve, mode='lines', name='Objectif FIRE (Ajusté)', line=dict(dash='dot', color='#00CC96')))
+
+            fig.update_layout(height=500, title="Projection de Patrimoine", yaxis_title="Montant (€)", hovermode="x unified")
+            st.plotly_chart(fig, width="stretch")
+
+    # --- TAB 2: EVENTS ---
+    with tab_events:
+        st.info("Ajoutez des impacts financiers futurs.")
+        c_evt1, c_evt2, c_evt3, c_evt4 = st.columns([2, 2, 2, 1])
+        with c_evt1: evt_name = st.text_input("Nom", "Achat Voiture")
+        with c_evt2: evt_year = st.number_input("Année", 1, years, 5)
+        with c_evt3: evt_amount = st.number_input("Montant", value=-15000.0, step=1000.0)
+        with c_evt4: 
+            st.write("")
+            st.write("")
+            if st.button("Ajouter"):
+                st.session_state["life_events"].append({"name": evt_name, "year": evt_year, "amount": evt_amount})
+        
+        if st.session_state["life_events"]:
+            st.dataframe(pd.DataFrame(st.session_state["life_events"]), hide_index=True)
+            if st.button("🗑️ Tout effacer"):
+                st.session_state["life_events"] = []
+                st.rerun()
+
+    # --- TAB 3: MONTE CARLO ---
+    with tab_monte:
+        col_mc_1, col_mc_2 = st.columns([1, 3])
+        with col_mc_1:
+            # On ajoute une key ici aussi pour que le chargement la mette à jour
+            volatility = st.slider("Volatilité Marché (%)", 5.0, 30.0, 15.0, 1.0, key="proj_volatility") / 100
+            nb_sim = st.select_slider("Nombre Simulations", options=[50, 100, 200, 500], value=100)
+        with col_mc_2:
+            if st.button("Lancer Monte Carlo", type="primary"):
+                mc_config = ProjectionConfig(
+                    start_capital=start_capital, monthly_savings=monthly_savings, years=years,
+                    annual_return_rate=annual_return, inflation_rate=inflation / 100,
+                    salary_growth_rate=salary_growth / 100, volatility=volatility,
+                    life_events=st.session_state["life_events"]
+                )
+                df_mc = calculate_monte_carlo(mc_config, n_simulations=nb_sim)
+                fig_mc = go.Figure()
+                fig_mc.add_trace(go.Scatter(x=pd.concat([df_mc['Year'], df_mc['Year'][::-1]]), y=pd.concat([df_mc['P90 (Optimiste)'], df_mc['P10 (Pessimiste)'][::-1]]), fill='toself', fillcolor='rgba(0,176,246,0.2)', line=dict(color='rgba(255,255,255,0)'), name='Intervalle 10%-90%'))
+                fig_mc.add_trace(go.Scatter(x=df_mc['Year'], y=df_mc['P50 (Médian)'], mode='lines', name='Médian', line=dict(color='#00CC96')))
+                fig_mc.update_layout(title="Cône d'incertitude", height=500, yaxis_title="Capital (€)")
+                st.plotly_chart(fig_mc, width="stretch")
+
+
 # --- MAIN APP ROUTING ---
 
 def main():
@@ -789,7 +1036,10 @@ def main():
 
         if st.button("🗺️ Carte du Marché", width="stretch"):
             st.session_state["current_page"] = "Carte du Marché"
-            
+
+        if st.button("🔮 Projections & FIRE", width="stretch"):
+            st.session_state["current_page"] = "Projections"    
+
         if st.button("📥 Import / Données", width="stretch"):
             st.session_state["current_page"] = "Import / Données"
         
@@ -806,6 +1056,8 @@ def main():
         render_wealth_page()
     elif page == "Carte du Marché":
         render_market_map_page()
+    if page == "Projections":
+        render_projections_page()
 
 if __name__ == "__main__":
     main()
