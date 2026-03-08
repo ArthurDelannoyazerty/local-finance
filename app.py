@@ -844,7 +844,7 @@ def render_projections_page():
     metrics = get_current_metrics()
     
     if "life_events" not in st.session_state:
-        st.session_state["life_events"] = []
+        st.session_state["life_events"] =[]
 
     # --- SIDEBAR ---
     with st.sidebar:
@@ -872,30 +872,37 @@ def render_projections_page():
         with col_param:
             st.markdown("#### ⚙️ Rendement & Fiscalité")
             annual_return = st.slider("Rendement Annuel (%)", 0.0, 15.0, 7.0, 0.1) / 100
-            tax_rate = st.slider("Taxe Plus-Values (%)", 0.0, 30.0, 30.0, 0.1) / 100 # Default Flat Tax
+            tax_rate = st.slider("Taxe Plus-Values (%)", 0.0, 30.0, 30.0, 0.1) / 100
             
             st.markdown("#### 🔥 Objectifs FIRE")
             monthly_expenses = st.number_input("Dépenses Mensuelles (€)", value=float(metrics["expenses"]), step=100.0)
             
-            # Définition des niveaux FIRE
             lean_ratio = 0.8
             fat_ratio = 1.5
             
             show_coast = st.checkbox(
                 "Montrer Coast FIRE", 
                 value=True, 
-                help="Montant nécessaire AUJOURD'HUI pour atteindre votre cible à la retraite sans ne plus jamais rien épargner."
+                help="Montant nécessaire AUJOURD'HUI pour atteindre votre cible à la retraite (65 ans) sans ne plus jamais rien épargner."
             )
             show_lean = st.checkbox(
                 f"Montrer Lean FIRE ({monthly_expenses*lean_ratio:,.0f}€/mois)", 
                 value=False,
-                help="Le mode 'Frugal' ou Survie. Couvre uniquement vos dépenses vitales (défini ici à 80% de vos dépenses normales)."
+                help="Le mode 'Frugal'. Couvre uniquement vos dépenses vitales (défini à 80% de vos dépenses normales)."
             )
             show_fat = st.checkbox(
                 f"Montrer Fat FIRE ({monthly_expenses*fat_ratio:,.0f}€/mois)", 
                 value=False,
-                help="Le mode 'Luxe' ou Confort absolu. Permet de voyager et d'augmenter votre train de vie (défini ici à 150% de vos dépenses normales)."
-            )            
+                help="Le mode 'Luxe'. Permet de voyager et d'augmenter votre train de vie (défini à 150% de vos dépenses normales)."
+            )
+
+            st.markdown("#### 🎯 Jalons Spéciaux")
+            show_tipping = st.checkbox(
+                "Montrer le Point de Bascule", 
+                value=True, 
+                help="Le moment où les intérêts générés chaque mois par votre capital dépassent votre effort d'épargne mensuel. Votre argent travaille plus dur que vous !"
+            )
+            
             st.markdown("---")
             show_real = st.checkbox("Ajuster à l'inflation (Réel)", value=True)
 
@@ -912,24 +919,31 @@ def render_projections_page():
             )
             df = calculate_deterministic_projection(config)
             
-            # 2. Calcul Fiscalité (Net Pocket)
-            # Pour simplifier l'affichage des seuils, on compare tout en "Net d'impôt".
-            # Donc on nettoie la courbe de patrimoine.
+            # 2. Calcul Fiscalité
             df['Gains'] = df['Nominal Capital'] - df['Total Invested']
             df['Tax'] = df['Gains'].apply(lambda x: x * tax_rate if x > 0 else 0)
             df['Net Nominal'] = df['Nominal Capital'] - df['Tax']
-            # Recalcul Net Réel
             deflator = (1 + (inflation/100)) ** (df['Month']/12)
             df['Net Real'] = df['Net Nominal'] / deflator
             
-            # 3. Calcul des Cibles (Targets)
-            # La règle des 4% s'applique sur le capital Net disponible.
-            fire_number_real = (monthly_expenses * 12) / 0.04
-            
-            # Colonne à afficher
             y_col = 'Net Real' if show_real else 'Net Nominal'
             
-            # KPI
+            # 3. Calcul du Point de Bascule (Tipping Point)
+            # Taux de rendement mensuel
+            monthly_return = (1 + annual_return) ** (1/12) - 1
+            # Tableau de l'épargne mensuelle (qui augmente avec le salaire chaque année)
+            current_savings_array = monthly_savings * (1 + (salary_growth/100)) ** ((df['Month'] - 1) // 12)
+            # Tableau des gains passifs mensuels générés par le capital
+            passive_gains_array = df['Nominal Capital'] * monthly_return
+            
+            # On cherche le premier mois où Gains Passifs >= Épargne Mensuelle
+            tipping_df = df[passive_gains_array >= current_savings_array]
+            tipping_age = None
+            if not tipping_df.empty:
+                tipping_age = current_age + tipping_df.iloc[0]['Year']
+
+            # 4. KPI
+            fire_number_real = (monthly_expenses * 12) / 0.04
             final_wealth = df[y_col].iloc[-1]
             passive_income = (final_wealth * 0.04) / 12
             
@@ -937,12 +951,11 @@ def render_projections_page():
             c1.metric("Patrimoine Net Final", f"{final_wealth:,.0f} €")
             c2.metric("Rente Mensuelle (4%)", f"{passive_income:,.0f} €")
             
-            # Calcul Date FIRE Standard
             reached = df[df['Net Real'] >= fire_number_real]
             if not reached.empty:
                 years_fire = reached.iloc[0]['Year']
                 age_fire = current_age + years_fire
-                c3.metric("FIRE Standard atteint à", f"{age_fire:.1f} ans", delta=f"dans {years_fire:.1f} ans")
+                c3.metric("FIRE Standard", f"{age_fire:.1f} ans", delta=f"dans {years_fire:.1f} ans")
             else:
                 c3.metric("FIRE Standard", "Non atteint")
 
@@ -951,7 +964,7 @@ def render_projections_page():
             
             # A. Courbe Principale
             fig.add_trace(go.Scatter(
-                x=df["Year"] + current_age, # On affiche l'âge en X
+                x=df["Year"] + current_age, 
                 y=df[y_col],
                 mode='lines',
                 name='Votre Patrimoine (Net)',
@@ -959,14 +972,13 @@ def render_projections_page():
                 hovertemplate='Âge: %{x:.1f}<br>Patrimoine: %{y:,.0f} €<extra></extra>'
             ))
 
-            # Fonction helper pour tracer des cibles
+            # B. Les Lignes FIRE
             def add_target_line(amount_real, name, color, visible, style='dash'):
                 if not visible: return
                 if show_real:
-                    y_vals = [amount_real] * len(df)
+                    y_vals =[amount_real] * len(df)
                 else:
-                    # En nominal, la cible augmente avec l'inflation
-                    y_vals = [amount_real * ((1 + inflation/100)**y) for y in df["Year"]]
+                    y_vals =[amount_real * ((1 + inflation/100)**y) for y in df["Year"]]
                 
                 fig.add_trace(go.Scatter(
                     x=df["Year"] + current_age, y=y_vals, mode='lines', name=name,
@@ -974,45 +986,30 @@ def render_projections_page():
                     hovertemplate=f'{name}: %{{y:,.0f}} €<extra></extra>'
                 ))
 
-            # B. Les Lignes FIRE
-            add_target_line(fire_number_real, "Standard FIRE (4%)", "#00CC96", True) # Toujours visible
+            add_target_line(fire_number_real, "Standard FIRE (4%)", "#00CC96", True) 
             add_target_line(fire_number_real * lean_ratio, "Lean FIRE", "#FFA15A", show_lean, 'dot')
             add_target_line(fire_number_real * fat_ratio, "Fat FIRE", "#AB63FA", show_fat, 'dot')
 
-            # C. La Courbe Coast FIRE
-            # Logique : Coast FIRE = Combien il me faut AUJOURD'HUI pour qu'à 65 ANS j'ai mon FIRE Number, sans rien ajouter.
-            # Formule : Target / (1 + Rate)^(Years_Left)
-            # Attention : Le Rate doit être le taux Réel (Return - Inflation) si on est en mode Réel.
+            # C. La Courbe Coast FIRE (Sans l'aire jaune)
             if show_coast:
                 real_return_rate = (1 + annual_return) / (1 + (inflation/100)) - 1
                 rate_used = real_return_rate if show_real else annual_return
-                target_used = fire_number_real # En réel, la cible est fixe. En nominal, le calcul est implicite dans le taux nominal.
+                target_used = fire_number_real
                 
-                coast_curve = []
-                for y in df["Year"]:
-                    age = current_age + y
-                    years_left = retire_age - age
-                    if years_left > 0:
-                        # Combien il faut avoir à l'âge 'age' pour que ça grossisse jusqu'à 'retire_age'
-                        req = target_used / ((1 + rate_used) ** years_left)
-                    else:
-                        req = target_used # Arrivé à la retraite
-                    coast_curve.append(req)
-                
-                # Si mode nominal, il faut re-inflater la courbe Coast pour qu'elle soit comparable au Nominal Wealth ?
-                # Non, la formule ci-dessus avec 'annual_return' (nominal) gère déjà l'inflation implicitement pour atteindre la cible nominale.
-                # Sauf qu'on a utilisé 'fire_number_real' comme base.
                 if not show_real:
-                     # Re-calcul propre nominal : Target à 65 ans (inflatée) ramenée au présent via rendement nominal
                      target_at_65_nominal = fire_number_real * ((1 + inflation/100)**(retire_age - current_age))
                      coast_curve = []
                      for y in df["Year"]:
                         age = current_age + y
                         years_left = retire_age - age
-                        if years_left > 0:
-                            req = target_at_65_nominal / ((1 + annual_return)**years_left)
-                        else:
-                            req = target_at_65_nominal
+                        req = target_at_65_nominal / ((1 + annual_return)**years_left) if years_left > 0 else target_at_65_nominal
+                        coast_curve.append(req)
+                else:
+                    coast_curve = []
+                    for y in df["Year"]:
+                        age = current_age + y
+                        years_left = retire_age - age
+                        req = target_used / ((1 + rate_used) ** years_left) if years_left > 0 else target_used
                         coast_curve.append(req)
 
                 fig.add_trace(go.Scatter(
@@ -1021,20 +1018,32 @@ def render_projections_page():
                     mode='lines',
                     name='Coast FIRE (Min requis)',
                     line=dict(color='#FECB52', width=2, dash='longdash'),
-                    # J'ai supprimé les paramètres 'fill' et 'fillcolor' ici
                     hovertemplate='Coast Threshold: %{y:,.0f} €<extra></extra>'
                 ))
+                
+            # D. Le Point de Bascule (Tipping Point)
+            if show_tipping and tipping_age is not None:
+                fig.add_vline(
+                    x=tipping_age,
+                    line_width=2,
+                    line_dash="dot",
+                    line_color="#00BFFF", # Deep Sky Blue (Très visible)
+                    annotation_text=f"Point de Bascule ({tipping_age:.1f} ans)",
+                    annotation_position="bottom right",
+                    annotation_font=dict(color="#00BFFF", size=12)
+                )
 
             fig.update_layout(
                 title="Trajectoire vers l'Indépendance",
                 xaxis_title="Votre Âge",
                 yaxis_title="Patrimoine Net (€)",
                 height=600,
-                hovermode="x unified"
+                hovermode="x unified",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
             st.plotly_chart(fig, width="stretch")
 
-    # --- TAB 2: EVENTS ---
+    # --- TAB EVENTS ---
     with tab_events:
         st.info("Ajoutez des impacts financiers futurs.")
         c_evt1, c_evt2, c_evt3, c_evt4 = st.columns([2, 2, 2, 1])
@@ -1050,10 +1059,10 @@ def render_projections_page():
         if st.session_state["life_events"]:
             st.dataframe(pd.DataFrame(st.session_state["life_events"]), hide_index=True)
             if st.button("🗑️ Tout effacer"):
-                st.session_state["life_events"] = []
+                st.session_state["life_events"] =[]
                 st.rerun()
 
-    # --- TAB 3: MONTE CARLO ---
+    # --- TAB MONTE CARLO ---
     with tab_monte:
         st.markdown("### 🎲 Analyse de Risque")
         st.markdown("""
@@ -1078,18 +1087,11 @@ def render_projections_page():
                 )
                 df_mc = calculate_monte_carlo(mc_config, n_simulations=nb_sim)
                 
-                # Calcul des min/max sur l'ensemble des simulations
-                # Note: calculate_monte_carlo retourne des percentiles. 
-                # Pour avoir le vrai min/max, il faudrait modifier le moteur, 
-                # mais P10 et P90 sont statistiquement plus pertinents que les outliers absolus.
-                # Cependant, pour répondre à la demande "Top et Bottom", on va utiliser P90 et P10 comme bornes "raisonnables"
-                # ou ajouter P05 et P95 si on veut être plus large.
-                
                 fig_mc = go.Figure()
                 
                 # Zone 10-90%
                 fig_mc.add_trace(go.Scatter(
-                    x=pd.concat([df_mc['Year'], df_mc['Year'][::-1]]),
+                    x=pd.concat([df_mc['Year'] + current_age, (df_mc['Year'] + current_age)[::-1]]),
                     y=pd.concat([df_mc['P90 (Optimiste)'], df_mc['P10 (Pessimiste)'][::-1]]),
                     fill='toself', fillcolor='rgba(0,176,246,0.2)', 
                     line=dict(color='rgba(255,255,255,0)'), 
@@ -1097,14 +1099,15 @@ def render_projections_page():
                     hoverinfo='skip'
                 ))
                 
-                # Lignes spécifiques
-                fig_mc.add_trace(go.Scatter(x=df_mc['Year'], y=df_mc['P90 (Optimiste)'], mode='lines', name='Scénario Optimiste (Top 10%)', line=dict(color='#636EFA', dash='dot', width=1)))
-                fig_mc.add_trace(go.Scatter(x=df_mc['Year'], y=df_mc['P50 (Médian)'], mode='lines', name='Scénario Médian', line=dict(color='#00CC96', width=3)))
-                fig_mc.add_trace(go.Scatter(x=df_mc['Year'], y=df_mc['P10 (Pessimiste)'], mode='lines', name='Scénario Pessimiste (Bottom 10%)', line=dict(color='#EF553B', dash='dot', width=1)))
+                # Lignes spécifiques (L'axe X est converti en Âge ici aussi)
+                fig_mc.add_trace(go.Scatter(x=df_mc['Year'] + current_age, y=df_mc['P90 (Optimiste)'], mode='lines', name='Scénario Optimiste (Top 10%)', line=dict(color='#636EFA', dash='dot', width=1)))
+                fig_mc.add_trace(go.Scatter(x=df_mc['Year'] + current_age, y=df_mc['P50 (Médian)'], mode='lines', name='Scénario Médian', line=dict(color='#00CC96', width=3)))
+                fig_mc.add_trace(go.Scatter(x=df_mc['Year'] + current_age, y=df_mc['P10 (Pessimiste)'], mode='lines', name='Scénario Pessimiste (Bottom 10%)', line=dict(color='#EF553B', dash='dot', width=1)))
                 
-                fig_mc.update_layout(height=500, title="Cône d'incertitude", yaxis_title="Capital (€)", hovermode="x unified")
+                fig_mc.update_layout(height=500, title="Cône d'incertitude", xaxis_title="Votre Âge", yaxis_title="Capital (€)", hovermode="x unified")
                 st.plotly_chart(fig_mc, width="stretch")
                 
+                                
 
 # --- MAIN APP ROUTING ---
 
