@@ -1,6 +1,6 @@
 import sqlite3
 from datetime import date, timedelta, datetime
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Optional
 
 import pandas as pd
 import polars as pl
@@ -104,190 +104,179 @@ def update_market_data(tickers: List[str]) -> None:
 
 # --- CORE ALGORITHM (The Robust Logic) ---
 
-def calculate_wealth_evolution() -> pl.DataFrame:
+def calculate_wealth_evolution(target_start: Optional[date] = None, target_end: Optional[date] = None) -> pl.DataFrame:
     """
-    Generates the daily evolution of cash and assets using an Event-Sourcing approach.
-    Rebuilds the state day by day from transactions, transfers, and investments.
-    
-    Returns:
-        pl.DataFrame: A Polars DataFrame compatible with app.py representing the timeline.
+    Generates the daily evolution of cash and assets.
+    Optimized: Calculates only the active period, then manually stitches 
+    padding rows for the past and future to fit the requested window.
     """
-    # 1. LOAD ALL DATA (Into Pandas for the loop logic)
+    # 1. LOAD ALL DATA
     with sqlite3.connect(get_db_path()) as conn:
         visible_acc_query = "SELECT name FROM accounts WHERE is_visible = 1"
-        
         accounts = pd.read_sql("SELECT name, initial_balance FROM accounts WHERE is_visible = 1", conn)
-        
         trans = pd.read_sql(f"SELECT date, account, amount, type FROM transactions WHERE is_excluded = 0 AND account IN ({visible_acc_query})", conn)
-        trans['amount'] = pd.to_numeric(trans['amount'])
-        
         transfers = pd.read_sql(f"SELECT date, source_account, target_account, amount FROM transfers WHERE source_account IN ({visible_acc_query}) AND target_account IN ({visible_acc_query})", conn)
-        transfers['amount'] = pd.to_numeric(transfers['amount'])
-        
         investments = pd.read_sql(f"SELECT date, account, ticker, action, quantity, unit_price, fees FROM investments WHERE account IN ({visible_acc_query})", conn)
-        investments[['quantity', 'unit_price', 'fees']] = investments[['quantity', 'unit_price', 'fees']].apply(pd.to_numeric)
 
-        # Get unique tickers to sync market data
-        unique_tickers: List[str] = investments['ticker'].unique().tolist() if not investments.empty else[]
+    trans['amount'] = pd.to_numeric(trans['amount'])
+    transfers['amount'] = pd.to_numeric(transfers['amount'])
+    investments[['quantity', 'unit_price', 'fees']] = investments[['quantity', 'unit_price', 'fees']].apply(pd.to_numeric)
+
+    unique_tickers: List[str] = investments['ticker'].unique().tolist() if not investments.empty else[]
     
-    # 2. SYNC MARKET PRICES
     if unique_tickers:
         update_market_data(unique_tickers)
         
-    # Re-open connection to get fresh prices after sync
     with sqlite3.connect(get_db_path()) as conn:
         prices = pd.read_sql("SELECT date, ticker, price FROM market_prices", conn)
 
     # 3. STANDARDIZE DATES
     for df in [trans, transfers, investments, prices]:
         if not df.empty:
-            df['date'] = pd.to_datetime(df['date'])
+            df['date'] = pd.to_datetime(df['date']).dt.date
 
-    # Determine timeline boundaries
     all_dates = pd.concat([trans['date'], transfers['date'], investments['date']]).dropna()
     
     if all_dates.empty and accounts.empty:
-        return pl.DataFrame()  # No data
-    
-    start_date = all_dates.min() if not all_dates.empty else pd.Timestamp(date.today())
-    if pd.isna(start_date):
-        start_date = pd.Timestamp(date.today())
-    end_date = pd.Timestamp(date.today())
-    
-    # Create master timeline (Daily)
-    timeline = pd.date_range(start=start_date, end=end_date, freq='D')
+        return pl.DataFrame()
 
-    # 4. PREPARE MARKET DATA MATRIX
-    # Pivot: Index=Date, Cols=Ticker, Values=Price
+    # 4. DETERMINE ACTIVE TIMELINE (Only where data exists)
+    db_start = all_dates.min() if not all_dates.empty else date.today()
+    db_end = all_dates.max() if not all_dates.empty else date.today()
+    
+    # Always include today to get latest prices
+    if db_end < date.today():
+        db_end = date.today()
+        
+    timeline_dates = pd.date_range(start=db_start, end=db_end, freq='D').date
+
+    # 5. MARKET DATA MATRIX
     if not prices.empty:
         price_matrix = prices.pivot_table(index='date', columns='ticker', values='price', aggfunc='mean')
-        # Reindex to full timeline and Forward Fill (handle weekends/holidays)
-        price_matrix = price_matrix.reindex(timeline).ffill()
+        idx = pd.to_datetime(timeline_dates)
+        price_matrix.index = pd.to_datetime(price_matrix.index)
+        price_matrix = price_matrix.reindex(idx).ffill().bfill().fillna(0.0)
+        price_matrix.index = price_matrix.index.date
     else:
-        price_matrix = pd.DataFrame(index=timeline)
+        price_matrix = pd.DataFrame(index=timeline_dates)
 
-    # 5. INITIALIZE STATE
-    # Cash balances: { 'PEA': 1000.0, 'Compte Courant': 500.0 }
-    current_cash: Dict[str, float] = {
-        row['name']: float(row['initial_balance']) for _, row in accounts.iterrows()
-    }
-    
-    # Portfolio Inventory PER ACCOUNT: { 'PEA': {'CW8.PA': 10.0}, 'CTO': {'TSLA': 5.0} }
+    # 6. INITIALIZE STATE
+    current_cash: Dict[str, float] = {row['name']: float(row['initial_balance']) for _, row in accounts.iterrows()}
     portfolio: Dict[str, Dict[str, float]] = {acc: {} for acc in current_cash}
-    
-    # FALLBACK PRICES: { 'CW8.PA': 450.20 } 
-    # (Remembers the last purchase price if market data is missing for a given day)
     last_tx_prices: Dict[str, float] = {}
 
-    # Pre-group data by date for speed during the event loop
     trans_g = trans.groupby('date') if not trans.empty else None
     transf_g = transfers.groupby('date') if not transfers.empty else None
     inv_g = investments.groupby('date') if not investments.empty else None
 
     history: List[Dict[str, Any]] =[]
 
-    # 6. THE EVENT LOOP
-    for day in timeline:
-        day_ts = pd.Timestamp(day)
-        
-        # A. Process Cash Transactions (Income/Expense)
-        if trans_g and day_ts in trans_g.groups:
-            for _, row in trans_g.get_group(day_ts).iterrows():
+    # 7. EVENT LOOP (Active period only)
+    for day in timeline_dates:
+        if trans_g and day in trans_g.groups:
+            for _, row in trans_g.get_group(day).iterrows():
                 acc = row['account']
                 if acc not in current_cash: 
                     current_cash[acc] = 0.0
                     portfolio[acc] = {}
-                
-                if row['type'] == 'INCOME':
-                    current_cash[acc] += row['amount']
-                else:  # EXPENSE
-                    current_cash[acc] -= row['amount']
+                if row['type'] == 'INCOME': current_cash[acc] += row['amount']
+                else: current_cash[acc] -= row['amount']
 
-        # B. Process Transfers
-        if transf_g and day_ts in transf_g.groups:
-            for _, row in transf_g.get_group(day_ts).iterrows():
+        if transf_g and day in transf_g.groups:
+            for _, row in transf_g.get_group(day).iterrows():
                 src, tgt = row['source_account'], row['target_account']
-                if src in current_cash: 
-                    current_cash[src] -= row['amount']
-                if tgt in current_cash: 
-                    current_cash[tgt] += row['amount']
+                if src in current_cash: current_cash[src] -= row['amount']
+                if tgt in current_cash: current_cash[tgt] += row['amount']
 
-        # C. Process Investments (Impacts Cash AND Shares)
-        if inv_g and day_ts in inv_g.groups:
-            for _, row in inv_g.get_group(day_ts).iterrows():
-                tkr = row['ticker']
-                acc = row['account']
-                qty = row['quantity']
-                price = row['unit_price']
-                fees = row['fees']
-                
-                total_cost = qty * price
-                
-                # Update Fallback Price
+        if inv_g and day in inv_g.groups:
+            for _, row in inv_g.get_group(day).iterrows():
+                tkr, acc, qty, price, fees = row['ticker'], row['account'], row['quantity'], row['unit_price'], row['fees']
                 last_tx_prices[tkr] = price
-
                 if acc not in current_cash: 
                     current_cash[acc] = 0.0
                     portfolio[acc] = {}
+                if tkr not in portfolio[acc]: portfolio[acc][tkr] = 0.0
                 
-                if tkr not in portfolio[acc]:
-                    portfolio[acc][tkr] = 0.0
-
+                cost = qty * price
                 if row['action'] == 'BUY':
-                    current_cash[acc] -= (total_cost + fees)
+                    current_cash[acc] -= (cost + fees)
                     portfolio[acc][tkr] += qty
                 elif row['action'] == 'SELL':
-                    current_cash[acc] += (total_cost - fees)
+                    current_cash[acc] += (cost - fees)
                     portfolio[acc][tkr] -= qty
 
-        # D. Calculate Valuation (Snapshot)
-        account_invest_val: Dict[str, float] = {acc: 0.0 for acc in current_cash}
-        total_invest_val: float = 0.0
+        # Valuation
+        account_invest_val = {acc: 0.0 for acc in current_cash}
+        total_invest_val = 0.0
         
-        # 1. Calculate value of stocks held PER ACCOUNT
         for acc, holdings in portfolio.items():
             for tkr, qty in holdings.items():
                 if qty > 0.000001:
                     mkt_price = 0.0
-                    # Get Market Price
                     if tkr in price_matrix.columns:
                         val = price_matrix.at[day, tkr]
-                        if not pd.isna(val):
-                            mkt_price = val
+                        if not pd.isna(val): mkt_price = val
+                    if mkt_price == 0.0: mkt_price = last_tx_prices.get(tkr, 0.0)
                     
-                    # Fallback to last known transaction price
-                    if mkt_price == 0.0:
-                        mkt_price = last_tx_prices.get(tkr, 0.0)
-                    
-                    val = qty * mkt_price
-                    account_invest_val[acc] += val
-                    total_invest_val += val
+                    val_assets = qty * mkt_price
+                    account_invest_val[acc] += val_assets
+                    total_invest_val += val_assets
 
-        # 2. Create Record (Value of an account is Cash + Investment Value)
-        record: Dict[str, Any] = {
-            'date': day,
-            'Total Invest': total_invest_val,  # Indicator for yellow dashed line
-        }
-        
+        record = {'date': day, 'Total Invest': total_invest_val}
         for acc, cash_bal in current_cash.items():
-            invest_bal = account_invest_val.get(acc, 0.0)
-            record[acc] = cash_bal + invest_bal
-
+            record[acc] = cash_bal + account_invest_val.get(acc, 0.0)
         history.append(record)
 
-    # 7. FORMAT OUTPUT
     if not history:
         return pl.DataFrame()
 
-    df_hist = pd.DataFrame(history)
-    
-    # Calculate Total Wealth by summing up all account columns
+    df_hist = pd.DataFrame(history).fillna(0.0)
     account_cols = [c for c in df_hist.columns if c not in ['date', 'Total Invest']]
     df_hist['Total Wealth'] = df_hist[account_cols].sum(axis=1)
+
+    # 8. ROBUST EXTENSION (MANUAL STITCHING)
+    # Ensure strict datetime format for sorting and comparison
+    df_hist['date'] = pd.to_datetime(df_hist['date'])
+    df_hist = df_hist.sort_values('date')
     
-    # Convert to Polars
-    pl_df = pl.from_pandas(df_hist)
-    pl_df = pl_df.with_columns(pl.col("date").cast(pl.Date))
+    # Get the boundaries of the calculated data
+    min_hist_date = df_hist['date'].iloc[0]
+    max_hist_date = df_hist['date'].iloc[-1]
+    
+    # Prepare list of dataframes to concatenate
+    dfs_to_concat = [df_hist]
+
+    # A. Prepend Past Data (if requested start < data start)
+    if target_start:
+        t_start = pd.Timestamp(target_start)
+        if t_start < min_hist_date:
+            # Create a range from target_start up to the day before history starts
+            past_dates = pd.date_range(start=t_start, end=min_hist_date - pd.Timedelta(days=1), freq='D')
+            if not past_dates.empty:
+                # Copy the first known row and replicate it
+                first_row = df_hist.iloc[[0]].copy()
+                past_df = pd.concat([first_row] * len(past_dates), ignore_index=True)
+                past_df['date'] = past_dates
+                dfs_to_concat.insert(0, past_df)
+
+    # B. Append Future Data (if requested end > data end)
+    if target_end:
+        t_end = pd.Timestamp(target_end)
+        if t_end > max_hist_date:
+            # Create a range from day after history ends up to target_end
+            future_dates = pd.date_range(start=max_hist_date + pd.Timedelta(days=1), end=t_end, freq='D')
+            if not future_dates.empty:
+                # Copy the last known row and replicate it
+                last_row = df_hist.iloc[[-1]].copy()
+                future_df = pd.concat([last_row] * len(future_dates), ignore_index=True)
+                future_df['date'] = future_dates
+                dfs_to_concat.append(future_df)
+
+    # C. Final Stitching
+    final_df = pd.concat(dfs_to_concat, ignore_index=True)
+
+    # 9. CONVERT TO POLARS
+    pl_df = pl.from_pandas(final_df).with_columns(pl.col("date").cast(pl.Date))
     
     return pl_df
 

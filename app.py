@@ -457,19 +457,32 @@ def render_wealth_page() -> None:
                         st.rerun() # Rafraîchit la page immédiatement
         else:
             st.info("Aucune transaction enregistrée.")
+    
     st.divider()
     
-    # Wealth Evolution Calculation
-    with st.spinner("Calcul de l'évolution du patrimoine..."):
-        df_wealth = calculate_wealth_evolution()
-    
-    if df_wealth.is_empty():
-        st.info("Pas assez de données pour générer le graphique.")
-        return
+    # --- 1. Récupération rapide des dates pour configurer l'interface ---
+    try:
+        with sqlite3.connect(get_db_path()) as conn:
+            min_dates = pd.read_sql("""
+                SELECT MIN(date) as d FROM transactions WHERE is_excluded=0
+                UNION SELECT MIN(date) FROM investments
+                UNION SELECT MIN(date) FROM transfers
+            """, conn)
+            valid_dates = pd.to_datetime(min_dates['d']).dropna()
+            first_history_date = valid_dates.min().date() if not valid_dates.empty else date.today()
+            
+            years_df = pd.read_sql("""
+                SELECT DISTINCT strftime('%Y', date) as y FROM transactions WHERE date IS NOT NULL 
+                UNION SELECT DISTINCT strftime('%Y', date) FROM investments WHERE date IS NOT NULL
+            """, conn)
+            years = sorted([int(y) for y in years_df['y'].dropna() if y], reverse=True)
+    except Exception:
+        first_history_date = date.today()
+        years =[]
 
-    # Wealth Date Filters
+    # Initialisation Session State
     if "wealth_start" not in st.session_state:
-        st.session_state["wealth_start"] = df_wealth["date"].min()
+        st.session_state["wealth_start"] = first_history_date
     if "wealth_end" not in st.session_state:
         st.session_state["wealth_end"] = date.today()
 
@@ -479,6 +492,7 @@ def render_wealth_page() -> None:
         st.session_state["wealth_start"] = target_start
         st.session_state["wealth_end"] = target_end
 
+    # Interface Date
     with st.container():
         st.subheader("📅 Période d'analyse")
         col_shortcuts, col_pickers = st.columns([3, 2], gap="large")
@@ -488,9 +502,8 @@ def render_wealth_page() -> None:
             if b1.button("1 Mois", key="w_1m", width="stretch"): update_wealth_range(days=30)
             if b2.button("6 Mois", key="w_6m", width="stretch"): update_wealth_range(days=180) 
             if b3.button("YTD", key="w_ytd", width="stretch"): update_wealth_range(start=date(date.today().year, 1, 1))
-            if b4.button("Tout", key="w_all", width="stretch"): update_wealth_range(start=df_wealth["date"].min())
+            if b4.button("Tout", key="w_all", width="stretch"): update_wealth_range(start=first_history_date)
 
-            years = sorted(df_wealth["date"].dt.year().unique().to_list(), reverse=True)
             if years:
                 st.write("") 
                 cols_years = st.columns(len(years) + 2)
@@ -504,6 +517,15 @@ def render_wealth_page() -> None:
             w_start = c_start.date_input("Début", key="wealth_start")
             w_end = c_end.date_input("Fin", key="wealth_end")
 
+    # --- 2. Calcul du Patrimoine Dynamique ---
+    with st.spinner("Calcul de l'évolution du patrimoine..."):
+        # C'est ICI que l'on passe nos variables du futur/passé au moteur
+        df_wealth = calculate_wealth_evolution(target_start=w_start, target_end=w_end)
+    
+    if df_wealth.is_empty():
+        st.info("Pas assez de données pour générer le graphique.")
+        return
+
     # Chart Generation
     df_viz = df_wealth.filter((pl.col("date") >= w_start) & (pl.col("date") <= w_end))
     
@@ -514,7 +536,7 @@ def render_wealth_page() -> None:
         st.write("---")
         col_opts, col_metrics = st.columns([2, 1])
         
-        excluded_cols =['date', 'Total Wealth', 'Total Invest']
+        excluded_cols = ['date', 'Total Wealth', 'Total Invest']
         account_cols =[c for c in pdf_wealth.columns if c not in excluded_cols]
         
         with col_opts:
