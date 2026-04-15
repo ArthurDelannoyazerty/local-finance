@@ -20,6 +20,173 @@ from src.projections_engine import (
 )
 from src.queries import get_investments_df, get_transactions_df
 
+
+# --- SANKEY ---
+
+def get_transfers_df() -> pl.DataFrame:
+    query = "SELECT * FROM transfers ORDER BY date DESC"
+    with sqlite3.connect(get_db_path()) as conn:
+        return pl.read_database(query, conn)
+
+
+def create_cash_flow_sankey(df_transactions: pl.DataFrame) -> go.Figure:
+    """Génère le grand Sankey des flux de trésorerie (Revenus -> Dépenses)."""
+    if df_transactions.is_empty():
+        return go.Figure()
+
+    # Séparation Revenus / Dépenses
+    df_inc = df_transactions.filter(pl.col("type") == "INCOME")
+    df_exp = df_transactions.filter(pl.col("type") == "EXPENSE")
+
+    # Agrégation par catégorie
+    inc_grouped = df_inc.group_by("category").agg(pl.col("amount").sum())
+    exp_grouped = df_exp.group_by("category").agg(pl.col("amount").sum())
+
+    total_inc = inc_grouped["amount"].sum() if not inc_grouped.is_empty() else 0.0
+    total_exp = exp_grouped["amount"].sum() if not exp_grouped.is_empty() else 0.0
+
+    labels =[]
+    label_map = {}
+    sources, targets, values, colors = [], [], [],[]
+
+    def get_idx(name: str) -> int:
+        if name not in label_map:
+            label_map[name] = len(labels)
+            labels.append(name)
+        return label_map[name]
+
+    idx_tot_inc = get_idx("Total Revenus")
+    idx_tot_exp = get_idx("Total Dépenses")
+
+    # Flux 1: Catégories Revenus -> Total Revenus
+    for row in inc_grouped.iter_rows(named=True):
+        sources.append(get_idx(row["category"]))
+        targets.append(idx_tot_inc)
+        values.append(row["amount"])
+        colors.append("rgba(0, 204, 150, 0.4)") # Vert
+
+    # Flux 2: Le croisement (Équilibre du Sankey)
+    if total_inc >= total_exp:
+        if total_exp > 0:
+            sources.append(idx_tot_inc)
+            targets.append(idx_tot_exp)
+            values.append(total_exp)
+            colors.append("rgba(169, 169, 169, 0.4)") # Gris
+            
+        remainder = total_inc - total_exp
+        if remainder > 0:
+            idx_sav = get_idx("Épargne / Reste à vivre")
+            idx_inv = get_idx("Investissements")
+            
+            # Revenus -> Epargne -> Investissement (Logique que vous avez demandée)
+            sources.append(idx_tot_inc)
+            targets.append(idx_sav)
+            values.append(remainder)
+            colors.append("rgba(99, 110, 250, 0.4)") # Bleu
+            
+            sources.append(idx_sav)
+            targets.append(idx_inv)
+            values.append(remainder)
+            colors.append("rgba(99, 110, 250, 0.4)")
+    else:
+        if total_inc > 0:
+            sources.append(idx_tot_inc)
+            targets.append(idx_tot_exp)
+            values.append(total_inc)
+            colors.append("rgba(169, 169, 169, 0.4)")
+            
+        deficit = total_exp - total_inc
+        if deficit > 0:
+            idx_def = get_idx("Déficit / Puisage")
+            sources.append(idx_def)
+            targets.append(idx_tot_exp)
+            values.append(deficit)
+            colors.append("rgba(239, 85, 59, 0.4)") # Rouge
+
+    # Flux 3: Total Dépenses -> Catégories Dépenses
+    for row in exp_grouped.iter_rows(named=True):
+        sources.append(idx_tot_exp)
+        targets.append(get_idx(row["category"]))
+        values.append(row["amount"])
+        colors.append("rgba(239, 85, 59, 0.4)")
+
+    fig = go.Figure(data=[go.Sankey(
+        node=dict(pad=20, thickness=30, line=dict(color="black", width=0.5), label=labels),
+        link=dict(source=sources, target=targets, value=values, color=colors)
+    )])
+    fig.update_layout(margin=dict(l=0, r=0, t=20, b=0), height=500)
+    return fig
+
+
+def create_transfers_sankey(df_transfers: pl.DataFrame) -> go.Figure:
+    """Petit Sankey 1 : Sortie de compte (Output) -> Entrée de compte (Input)."""
+    if df_transfers.is_empty():
+        return go.Figure()
+
+    grouped = df_transfers.group_by(["source_account", "target_account"]).agg(pl.col("amount").sum())
+
+    labels =[]
+    label_map = {}
+    sources, targets, values = [], [],[]
+
+    def get_idx(name: str) -> int:
+        if name not in label_map:
+            label_map[name] = len(labels)
+            labels.append(name)
+        return label_map[name]
+
+    for row in grouped.iter_rows(named=True):
+        # On ajoute (Débit) et (Crédit) pour éviter les boucles infinies sur le même noeud si un compte envoie et reçoit
+        s = get_idx(f"{row['source_account']} (Out)")
+        t = get_idx(f"{row['target_account']} (In)")
+        sources.append(s); targets.append(t); values.append(row["amount"])
+
+    fig = go.Figure(data=[go.Sankey(
+        node=dict(pad=15, thickness=20, label=labels, color="lightblue"),
+        link=dict(source=sources, target=targets, value=values, color="rgba(173, 216, 230, 0.5)")
+    )])
+    fig.update_layout(margin=dict(l=0, r=0, t=20, b=0), height=350)
+    return fig
+
+
+def create_investments_sankey(df_inv: pl.DataFrame) -> go.Figure:
+    """Petit Sankey 2 : Bank (Out) -> Investissement (Ticker) -> Bank (In)."""
+    if df_inv.is_empty():
+        return go.Figure()
+
+    labels =[]
+    label_map = {}
+    sources, targets, values = [], [],[]
+
+    def get_idx(name: str) -> int:
+        if name not in label_map:
+            label_map[name] = len(labels)
+            labels.append(name)
+        return label_map[name]
+
+    # Achats: Compte Bancaire -> Actif
+    df_buy = df_inv.filter(pl.col("action") == "BUY")
+    for row in df_buy.iter_rows(named=True):
+        s = get_idx(f"{row['account']} (Cash Out)")
+        t = get_idx(row['ticker'])
+        cost = (row['quantity'] * row['unit_price']) + row['fees']
+        sources.append(s); targets.append(t); values.append(cost)
+
+    # Ventes: Actif -> Compte Bancaire
+    df_sell = df_inv.filter(pl.col("action") == "SELL")
+    for row in df_sell.iter_rows(named=True):
+        s = get_idx(row['ticker'])
+        t = get_idx(f"{row['account']} (Cash In)")
+        revenue = (row['quantity'] * row['unit_price']) - row['fees']
+        sources.append(s); targets.append(t); values.append(revenue)
+
+    fig = go.Figure(data=[go.Sankey(
+        node=dict(pad=15, thickness=20, label=labels, color="gold"),
+        link=dict(source=sources, target=targets, value=values, color="rgba(255, 215, 0, 0.4)")
+    )])
+    fig.update_layout(margin=dict(l=0, r=0, t=20, b=0), height=350)
+    return fig
+
 # --- SETUP & INITIALIZATION ---
 st.set_page_config(
     page_title="My Finance Tracker", 
@@ -157,6 +324,7 @@ def render_import_page() -> None:
                 },
                 hide_index=True,
                 use_container_width=True,
+                width="stretch",
                 key="acc_editor"
             )
             
@@ -333,6 +501,97 @@ def render_dashboard_page() -> None:
             st.plotly_chart(fig_combo, width="stretch")
         else:
             st.info("Pas de données sur la période sélectionnée.")
+
+
+def render_sankey_page() -> None:
+    st.header("📊 Analyse des Flux (Cash Flow)")
+    
+    df = get_transactions_df()
+    
+    if df.is_empty():
+        st.warning("Pas de données. Veuillez importer des fichiers.")
+        return
+
+    # 1. Préparation de la colonne Mois-Année
+    df = df.with_columns(pl.col("date").dt.strftime("%Y-%m").alias("month_year"))
+    
+    # 2. Liste de tous les mois disponibles triés du plus récent au plus ancien
+    all_months = df["month_year"].unique().sort(descending=True).to_list()
+    
+    # 3. Sélection par défaut (les 3 derniers mois)
+    default_months = all_months[:3] if len(all_months) >= 3 else all_months
+
+    st.subheader("📅 Sélection de la Période")
+    st.caption("Vous pouvez ajouter, retirer ou sauter des mois pour une analyse ciblée.")
+    
+    selected_months = st.multiselect(
+        "Mois inclus dans l'analyse :", 
+        options=all_months, 
+        default=default_months
+    )
+
+    if not selected_months:
+        st.warning("Veuillez sélectionner au moins un mois.")
+        return
+
+    st.divider()
+
+    # 4. Filtrage dynamique
+    df_filtered = df.filter(pl.col("month_year").is_in(selected_months))
+
+    # ---- LE GRAND SANKEY CASH FLOW ----
+    st.subheader("🌊 Cartographie des flux financiers")
+    fig_cash_sankey = create_cash_flow_sankey(df_filtered)
+    if fig_cash_sankey.data:
+        # Correction de la syntaxe dépréciée
+        st.plotly_chart(fig_cash_sankey, width="stretch")
+    else:
+        st.info("Aucun flux trouvé pour cette sélection.")
+
+    st.divider()
+
+    st.subheader("🔁 Mouvements des Capitaux")
+    st.caption("Visualisez les transferts entre vos comptes et vos flux d'investissements.")
+    
+    df_trans = get_transfers_df()
+    df_inv = get_investments_df()
+
+    # 5. Application du filtre mensuel aux petits Sankeys
+    if not df_trans.is_empty():
+        df_trans = df_trans.with_columns(
+            pl.col("date").cast(pl.Date)
+        ).with_columns(
+            pl.col("date").dt.strftime("%Y-%m").alias("month_year")
+        )
+        df_trans = df_trans.filter(pl.col("month_year").is_in(selected_months))
+        
+    if not df_inv.is_empty():
+        df_inv = df_inv.with_columns(
+            pl.col("date").cast(pl.Date)
+        ).with_columns(
+            pl.col("date").dt.strftime("%Y-%m").alias("month_year")
+        )
+        df_inv = df_inv.filter(pl.col("month_year").is_in(selected_months))
+
+    col_sk1, col_sk2 = st.columns(2)
+
+    with col_sk1:
+        st.markdown("**Transferts Inter-Comptes**")
+        fig_transfers = create_transfers_sankey(df_trans)
+        if fig_transfers.data:
+            # Correction de la syntaxe dépréciée
+            st.plotly_chart(fig_transfers, width="stretch")
+        else:
+            st.info("Aucun transfert sur cette période.")
+
+    with col_sk2:
+        st.markdown("**Flux Boursiers (Achat / Vente)**")
+        fig_investments = create_investments_sankey(df_inv)
+        if fig_investments.data:
+            # Correction de la syntaxe dépréciée
+            st.plotly_chart(fig_investments, width="stretch")
+        else:
+            st.info("Aucune opération boursière sur cette période.")
 
 
 def render_wealth_page() -> None:
@@ -1030,6 +1289,9 @@ def main():
         
         if st.button("📊 Tableau de Bord", width="stretch"):
             st.session_state["current_page"] = "Tableau de Bord"
+        
+        if st.button("Sankey Diagram", width="stretch"):
+            st.session_state["current_page"] = "Sankey Diagram"
             
         if st.button("📈 Patrimoine & Bourse", width="stretch"):
             st.session_state["current_page"] = "Patrimoine & Bourse"
@@ -1050,6 +1312,8 @@ def main():
     
     if page == "Import / Données":
         render_import_page()
+    if page == "Sankey Diagram":
+        render_sankey_page()
     elif page == "Tableau de Bord":
         render_dashboard_page()
     elif page == "Patrimoine & Bourse":
