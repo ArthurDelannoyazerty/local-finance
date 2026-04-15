@@ -34,11 +34,9 @@ def create_cash_flow_sankey(df_transactions: pl.DataFrame) -> go.Figure:
     if df_transactions.is_empty():
         return go.Figure()
 
-    # Séparation Revenus / Dépenses
     df_inc = df_transactions.filter(pl.col("type") == "INCOME")
     df_exp = df_transactions.filter(pl.col("type") == "EXPENSE")
 
-    # Agrégation par catégorie
     inc_grouped = df_inc.group_by("category").agg(pl.col("amount").sum())
     exp_grouped = df_exp.group_by("category").agg(pl.col("amount").sum())
 
@@ -55,15 +53,26 @@ def create_cash_flow_sankey(df_transactions: pl.DataFrame) -> go.Figure:
             labels.append(name)
         return label_map[name]
 
-    idx_tot_inc = get_idx("Total Revenus")
-    idx_tot_exp = get_idx("Total Dépenses")
+    # Formateur de texte personnalisé pour injecter les prix et %
+    def format_lbl(name: str, val: float, ref_total: float) -> str:
+        # Formatage du prix avec espace pour les milliers (ex: 1 500 €)
+        val_str = f"{val:,.0f}".replace(",", " ")
+        if ref_total > 0:
+            pct = (val / ref_total) * 100
+            return f"{name}<br>{val_str} € ({pct:.1f}%)"
+        return f"{name}<br>{val_str} €"
+
+    # Nœuds centraux
+    idx_tot_inc = get_idx(f"Total Revenus<br>{total_inc:,.0f} €".replace(",", " "))
+    idx_tot_exp = get_idx(format_lbl("Total Dépenses", total_exp, total_inc))
 
     # Flux 1: Catégories Revenus -> Total Revenus
     for row in inc_grouped.iter_rows(named=True):
-        sources.append(get_idx(row["category"]))
+        lbl = format_lbl(row["category"], row["amount"], total_inc)
+        sources.append(get_idx(lbl))
         targets.append(idx_tot_inc)
         values.append(row["amount"])
-        colors.append("rgba(0, 204, 150, 0.4)") # Vert
+        colors.append("rgba(0, 204, 150, 0.4)")
 
     # Flux 2: Le croisement (Équilibre du Sankey)
     if total_inc >= total_exp:
@@ -71,18 +80,19 @@ def create_cash_flow_sankey(df_transactions: pl.DataFrame) -> go.Figure:
             sources.append(idx_tot_inc)
             targets.append(idx_tot_exp)
             values.append(total_exp)
-            colors.append("rgba(169, 169, 169, 0.4)") # Gris
+            colors.append("rgba(169, 169, 169, 0.4)")
             
         remainder = total_inc - total_exp
         if remainder > 0:
-            idx_sav = get_idx("Épargne / Reste à vivre")
-            idx_inv = get_idx("Investissements")
+            lbl_sav = format_lbl("Épargne / Reste à vivre", remainder, total_inc)
+            lbl_inv = format_lbl("Investissements", remainder, total_inc)
+            idx_sav = get_idx(lbl_sav)
+            idx_inv = get_idx(lbl_inv)
             
-            # Revenus -> Epargne -> Investissement (Logique que vous avez demandée)
             sources.append(idx_tot_inc)
             targets.append(idx_sav)
             values.append(remainder)
-            colors.append("rgba(99, 110, 250, 0.4)") # Bleu
+            colors.append("rgba(99, 110, 250, 0.4)")
             
             sources.append(idx_sav)
             targets.append(idx_inv)
@@ -97,33 +107,50 @@ def create_cash_flow_sankey(df_transactions: pl.DataFrame) -> go.Figure:
             
         deficit = total_exp - total_inc
         if deficit > 0:
-            idx_def = get_idx("Déficit / Puisage")
+            lbl_def = format_lbl("Déficit / Puisage", deficit, total_exp)
+            idx_def = get_idx(lbl_def)
             sources.append(idx_def)
             targets.append(idx_tot_exp)
             values.append(deficit)
-            colors.append("rgba(239, 85, 59, 0.4)") # Rouge
+            colors.append("rgba(239, 85, 59, 0.4)")
 
     # Flux 3: Total Dépenses -> Catégories Dépenses
     for row in exp_grouped.iter_rows(named=True):
+        # Pour les dépenses, le % calculé l'est par rapport au Total des Dépenses
+        lbl = format_lbl(row["category"], row["amount"], total_exp)
         sources.append(idx_tot_exp)
-        targets.append(get_idx(row["category"]))
+        targets.append(get_idx(lbl))
         values.append(row["amount"])
         colors.append("rgba(239, 85, 59, 0.4)")
 
     fig = go.Figure(data=[go.Sankey(
-        node=dict(pad=20, thickness=30, line=dict(color="black", width=0.5), label=labels),
+        valueformat=".0f",
+        valuesuffix=" €",
+        node=dict(
+            pad=20, 
+            thickness=30, 
+            line=dict(color="black", width=0.5), 
+            label=labels
+        ),
         link=dict(source=sources, target=targets, value=values, color=colors)
     )])
-    fig.update_layout(margin=dict(l=0, r=0, t=20, b=0), height=500)
+    
+    # On augmente légèrement la hauteur pour laisser de la place aux textes sur 2 lignes
+    fig.update_layout(margin=dict(l=0, r=0, t=20, b=0), height=550)
     return fig
 
-
 def create_transfers_sankey(df_transfers: pl.DataFrame) -> go.Figure:
-    """Petit Sankey 1 : Sortie de compte (Output) -> Entrée de compte (Input)."""
+    """Petit Sankey 1 : Chaine de transferts entre comptes bancaires."""
     if df_transfers.is_empty():
         return go.Figure()
 
-    grouped = df_transfers.group_by(["source_account", "target_account"]).agg(pl.col("amount").sum())
+    # On ignore les transferts vers le même compte au cas où ils existeraient
+    grouped = (
+        df_transfers
+        .filter(pl.col("source_account") != pl.col("target_account"))
+        .group_by(["source_account", "target_account"])
+        .agg(pl.col("amount").sum())
+    )
 
     labels =[]
     label_map = {}
@@ -136,25 +163,28 @@ def create_transfers_sankey(df_transfers: pl.DataFrame) -> go.Figure:
         return label_map[name]
 
     for row in grouped.iter_rows(named=True):
-        # On ajoute (Débit) et (Crédit) pour éviter les boucles infinies sur le même noeud si un compte envoie et reçoit
-        s = get_idx(f"{row['source_account']} (Out)")
-        t = get_idx(f"{row['target_account']} (In)")
-        sources.append(s); targets.append(t); values.append(row["amount"])
+        # On utilise le VRAI nom du compte, sans suffixe, pour créer le chaînage (A -> B -> C)
+        s = get_idx(row['source_account'])
+        t = get_idx(row['target_account'])
+        sources.append(s)
+        targets.append(t)
+        values.append(row["amount"])
 
     fig = go.Figure(data=[go.Sankey(
+        valueformat=".0f",
+        valuesuffix=" €",
         node=dict(pad=15, thickness=20, label=labels, color="lightblue"),
         link=dict(source=sources, target=targets, value=values, color="rgba(173, 216, 230, 0.5)")
     )])
     fig.update_layout(margin=dict(l=0, r=0, t=20, b=0), height=350)
     return fig
 
-
 def create_investments_sankey(df_inv: pl.DataFrame) -> go.Figure:
-    """Petit Sankey 2 : Bank (Out) -> Investissement (Ticker) -> Bank (In)."""
+    """Petit Sankey 2 : Bank -> Actif (Achat) & Actif -> Bank (Vente)."""
     if df_inv.is_empty():
         return go.Figure()
 
-    labels =[]
+    labels = []
     label_map = {}
     sources, targets, values = [], [],[]
 
@@ -167,7 +197,7 @@ def create_investments_sankey(df_inv: pl.DataFrame) -> go.Figure:
     # Achats: Compte Bancaire -> Actif
     df_buy = df_inv.filter(pl.col("action") == "BUY")
     for row in df_buy.iter_rows(named=True):
-        s = get_idx(f"{row['account']} (Cash Out)")
+        s = get_idx(row['account']) # Suppression du (Cash Out)
         t = get_idx(row['ticker'])
         cost = (row['quantity'] * row['unit_price']) + row['fees']
         sources.append(s); targets.append(t); values.append(cost)
@@ -176,16 +206,19 @@ def create_investments_sankey(df_inv: pl.DataFrame) -> go.Figure:
     df_sell = df_inv.filter(pl.col("action") == "SELL")
     for row in df_sell.iter_rows(named=True):
         s = get_idx(row['ticker'])
-        t = get_idx(f"{row['account']} (Cash In)")
+        t = get_idx(row['account']) # Suppression du (Cash In)
         revenue = (row['quantity'] * row['unit_price']) - row['fees']
         sources.append(s); targets.append(t); values.append(revenue)
 
     fig = go.Figure(data=[go.Sankey(
+        valueformat=".0f",
+        valuesuffix=" €",
         node=dict(pad=15, thickness=20, label=labels, color="gold"),
         link=dict(source=sources, target=targets, value=values, color="rgba(255, 215, 0, 0.4)")
     )])
     fig.update_layout(margin=dict(l=0, r=0, t=20, b=0), height=350)
     return fig
+
 
 # --- SETUP & INITIALIZATION ---
 st.set_page_config(
@@ -504,7 +537,7 @@ def render_dashboard_page() -> None:
 
 
 def render_sankey_page() -> None:
-    st.header("📊 Analyse des Flux (Cash Flow)")
+    st.header("Sankey Diagrams")
     
     df = get_transactions_df()
     
@@ -519,9 +552,9 @@ def render_sankey_page() -> None:
     all_months = df["month_year"].unique().sort(descending=True).to_list()
     
     # 3. Sélection par défaut (les 3 derniers mois)
-    default_months = all_months[:3] if len(all_months) >= 3 else all_months
+    default_months = all_months[0] if len(all_months) >= 3 else all_months
 
-    st.subheader("📅 Sélection de la Période")
+    st.subheader("Sélection de la Période")
     st.caption("Vous pouvez ajouter, retirer ou sauter des mois pour une analyse ciblée.")
     
     selected_months = st.multiselect(
@@ -540,7 +573,7 @@ def render_sankey_page() -> None:
     df_filtered = df.filter(pl.col("month_year").is_in(selected_months))
 
     # ---- LE GRAND SANKEY CASH FLOW ----
-    st.subheader("🌊 Cartographie des flux financiers")
+    st.subheader("Flux Revenus/Dépenses par catégories")
     fig_cash_sankey = create_cash_flow_sankey(df_filtered)
     if fig_cash_sankey.data:
         # Correction de la syntaxe dépréciée
@@ -550,7 +583,7 @@ def render_sankey_page() -> None:
 
     st.divider()
 
-    st.subheader("🔁 Mouvements des Capitaux")
+    st.subheader("Flux des comptes et actions")
     st.caption("Visualisez les transferts entre vos comptes et vos flux d'investissements.")
     
     df_trans = get_transfers_df()
