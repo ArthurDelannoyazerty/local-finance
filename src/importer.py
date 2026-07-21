@@ -54,6 +54,42 @@ def generate_deterministic_id(row: Dict[str, Any], type_import: str) -> str:
     return hashlib.md5(unique_string.encode('utf-8')).hexdigest()
 
 
+def assign_deterministic_ids(rows: list[Dict[str, Any]], type_import: str) -> None:
+    """Assign stable IDs while preserving repeated, otherwise identical rows."""
+    occurrences: Dict[str, int] = {}
+
+    for row in rows:
+        if row.get('comment') is None:
+            row['comment'] = ""
+
+        base_id = generate_deterministic_id(row, type_import)
+        occurrence = occurrences.get(base_id, 0)
+        occurrences[base_id] = occurrence + 1
+
+        if occurrence == 0:
+            # Keep the historical ID format for the first occurrence so existing
+            # databases do not duplicate every row after upgrading.
+            row['id'] = base_id
+        else:
+            occurrence_key = f"{base_id}:{occurrence}"
+            row['id'] = hashlib.md5(occurrence_key.encode('utf-8')).hexdigest()
+
+
+def rows_for_sql(rows: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    """Serialize dates explicitly instead of relying on deprecated sqlite adapters."""
+    return [
+        {
+            **row,
+            'date': (
+                row['date'].isoformat()
+                if isinstance(row.get('date'), date)
+                else row.get('date')
+            ),
+        }
+        for row in rows
+    ]
+
+
 def safe_amount(df: pl.DataFrame, col_name: str) -> pl.Expr:
     """
     Safely handles the conversion of amount columns (handling comma strings or floats).
@@ -143,20 +179,14 @@ def process_sheet(df: pl.DataFrame, type_import: str, conn: sqlite3.Connection) 
         ])
 
         rows = clean_df.to_dicts()
-        for row in rows:
-            # Normalize optional values before hashing. Excel readers can expose
-            # an empty cell as either None or "" between exports; treating those
-            # as different transactions makes a re-import count the same row twice.
-            if row['comment'] is None:
-                row['comment'] = ""
-            row['id'] = generate_deterministic_id(row, type_import)
+        assign_deterministic_ids(rows, type_import)
 
         # 1. Insertion des nouvelles lignes
         cursor.executemany("""
             INSERT OR IGNORE INTO transactions 
             (id, date, category, account, amount, currency, comment, type, is_excluded)
             VALUES (:id, :date, :category, :account, :amount, :currency, :comment, :type, :is_excluded)
-        """, rows)
+        """, rows_for_sql(rows))
         
         # 2. Suppression des lignes qui n'existent plus dans le fichier source (SYNCHRONISATION)
         cursor.execute("DROP TABLE IF EXISTS temp_imported_ids")
@@ -183,7 +213,10 @@ def process_sheet(df: pl.DataFrame, type_import: str, conn: sqlite3.Connection) 
                     AND date <= ?
                     AND id NOT IN (SELECT id FROM temp_imported_ids)
                 """
-                cursor.execute(delete_query, [t_type] + accounts_in_file + [start_date, end_date])
+                cursor.execute(
+                    delete_query,
+                    [t_type] + accounts_in_file + [start_date.isoformat(), end_date.isoformat()],
+                )
                 
         cursor.execute("DROP TABLE IF EXISTS temp_imported_ids")
         
@@ -201,17 +234,14 @@ def process_sheet(df: pl.DataFrame, type_import: str, conn: sqlite3.Connection) 
         ])
 
         rows = clean_df.to_dicts()
-        for row in rows:
-            if row['comment'] is None:
-                row['comment'] = ""
-            row['id'] = generate_deterministic_id(row, type_import)
+        assign_deterministic_ids(rows, type_import)
 
         # 1. Insertion des nouvelles lignes
         cursor.executemany("""
             INSERT OR IGNORE INTO transfers
             (id, date, source_account, target_account, amount, comment)
             VALUES (:id, :date, :source_account, :target_account, :amount, :comment)
-        """, rows)
+        """, rows_for_sql(rows))
         
         # 2. Suppression des lignes retirées (SYNCHRONISATION)
         cursor.execute("DROP TABLE IF EXISTS temp_imported_ids")
@@ -239,7 +269,12 @@ def process_sheet(df: pl.DataFrame, type_import: str, conn: sqlite3.Connection) 
                       AND date <= ?
                       AND id NOT IN (SELECT id FROM temp_imported_ids)
                 """
-                cursor.execute(delete_query, accounts_in_file + accounts_in_file + [start_date, end_date])
+                cursor.execute(
+                    delete_query,
+                    accounts_in_file
+                    + accounts_in_file
+                    + [start_date.isoformat(), end_date.isoformat()],
+                )
                 
         cursor.execute("DROP TABLE IF EXISTS temp_imported_ids")
         
