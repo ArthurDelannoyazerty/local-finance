@@ -144,9 +144,12 @@ def process_sheet(df: pl.DataFrame, type_import: str, conn: sqlite3.Connection) 
 
         rows = clean_df.to_dicts()
         for row in rows:
-            row['id'] = generate_deterministic_id(row, type_import)
-            if row['comment'] is None: 
+            # Normalize optional values before hashing. Excel readers can expose
+            # an empty cell as either None or "" between exports; treating those
+            # as different transactions makes a re-import count the same row twice.
+            if row['comment'] is None:
                 row['comment'] = ""
+            row['id'] = generate_deterministic_id(row, type_import)
 
         # 1. Insertion des nouvelles lignes
         cursor.executemany("""
@@ -158,7 +161,7 @@ def process_sheet(df: pl.DataFrame, type_import: str, conn: sqlite3.Connection) 
         # 2. Suppression des lignes qui n'existent plus dans le fichier source (SYNCHRONISATION)
         cursor.execute("DROP TABLE IF EXISTS temp_imported_ids")
         cursor.execute("CREATE TEMPORARY TABLE temp_imported_ids (id TEXT PRIMARY KEY)")
-        cursor.executemany("INSERT INTO temp_imported_ids (id) VALUES (?)", [(r['id'],) for r in rows])
+        cursor.executemany("INSERT OR IGNORE INTO temp_imported_ids (id) VALUES (?)", [(r['id'],) for r in rows])
         
         dates = [r['date'] for r in rows if r['date'] is not None]
         if dates:
@@ -176,9 +179,11 @@ def process_sheet(df: pl.DataFrame, type_import: str, conn: sqlite3.Connection) 
                     DELETE FROM transactions 
                     WHERE type = ? 
                     AND account IN ({placeholders})
+                    AND date >= ?
+                    AND date <= ?
                     AND id NOT IN (SELECT id FROM temp_imported_ids)
                 """
-                cursor.execute(delete_query, [t_type] + accounts_in_file +[start_date, end_date])
+                cursor.execute(delete_query, [t_type] + accounts_in_file + [start_date, end_date])
                 
         cursor.execute("DROP TABLE IF EXISTS temp_imported_ids")
         
@@ -197,9 +202,9 @@ def process_sheet(df: pl.DataFrame, type_import: str, conn: sqlite3.Connection) 
 
         rows = clean_df.to_dicts()
         for row in rows:
-            row['id'] = generate_deterministic_id(row, type_import)
-            if row['comment'] is None: 
+            if row['comment'] is None:
                 row['comment'] = ""
+            row['id'] = generate_deterministic_id(row, type_import)
 
         # 1. Insertion des nouvelles lignes
         cursor.executemany("""
@@ -211,7 +216,7 @@ def process_sheet(df: pl.DataFrame, type_import: str, conn: sqlite3.Connection) 
         # 2. Suppression des lignes retirées (SYNCHRONISATION)
         cursor.execute("DROP TABLE IF EXISTS temp_imported_ids")
         cursor.execute("CREATE TEMPORARY TABLE temp_imported_ids (id TEXT PRIMARY KEY)")
-        cursor.executemany("INSERT INTO temp_imported_ids (id) VALUES (?)", [(r['id'],) for r in rows])
+        cursor.executemany("INSERT OR IGNORE INTO temp_imported_ids (id) VALUES (?)", [(r['id'],) for r in rows])
         
         dates = [r['date'] for r in rows if r['date'] is not None]
         if dates:
@@ -268,31 +273,16 @@ def import_excel_file(file: BinaryIO) -> Dict[str, int]:
         # Pass the raw bytes to fastexcel
         reader = fastexcel.read_excel(file_bytes)
         
-        # 1. REVENUS
-        try:
-            # header_row=1 : skip row 0 (Title), take row 1 as header
-            sheet = reader.load_sheet("Revenus", header_row=1)
-            df_rev = sheet.to_polars()
-            stats["Revenus"] = process_sheet(df_rev, "Revenus", conn)
-        except Exception as e:
-            # Log the error but continue (the sheet might just not exist)
-            print(f"Info import Revenus: {e}")
+        # Missing optional sheets are valid, but a malformed sheet must abort the
+        # whole import. Otherwise SQLite can commit newly inserted rows after the
+        # matching cleanup failed and the UI still reports a successful import.
+        available_sheets = set(reader.sheet_names)
+        for sheet_name in stats:
+            if sheet_name not in available_sheets:
+                continue
 
-        # 2. DEPENSES
-        try:
-            sheet = reader.load_sheet("Dépenses", header_row=1)
-            df_dep = sheet.to_polars()
-            stats["Dépenses"] = process_sheet(df_dep, "Dépenses", conn)
-        except Exception as e:
-            print(f"Info import Dépenses: {e}")
-
-        # 3. TRANSFERTS
-        try:
-            sheet = reader.load_sheet("Transferts", header_row=1)
-            df_trans = sheet.to_polars()
-            stats["Transferts"] = process_sheet(df_trans, "Transferts", conn)
-        except Exception as e:
-            print(f"Info import Transferts: {e}")
+            sheet = reader.load_sheet(sheet_name, header_row=1)
+            stats[sheet_name] = process_sheet(sheet.to_polars(), sheet_name, conn)
             
         conn.commit()
     except Exception as e:
