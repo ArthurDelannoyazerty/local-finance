@@ -199,7 +199,7 @@ export function allocationTreeData(
         value: sizeValue(displayValue),
         displayValue,
         kind: "account",
-        itemStyle: accountStyle,
+        ...accountStyle,
       };
     }
 
@@ -227,7 +227,7 @@ export function allocationTreeData(
       value: children.reduce((sum, item) => sum + item.value, 0),
       displayValue,
       kind: "account",
-      itemStyle: accountStyle,
+      ...accountStyle,
       children,
     };
   });
