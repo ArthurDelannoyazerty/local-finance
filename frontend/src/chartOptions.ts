@@ -26,8 +26,15 @@ export type AllocationTreeNode = {
   ticker?: string;
   performanceAbsolute?: number | null;
   performancePercent?: number | null;
-  itemStyle: { color: string };
   children?: AllocationTreeNode[];
+  itemStyle: {
+    color: string;
+    borderColor?: string;
+  };
+  upperLabel?: {
+    backgroundColor: string;
+    color: string;
+  };
 };
 
 export const CATEGORY_PALETTE = [
@@ -175,6 +182,16 @@ export function allocationTreeData(
       0,
     );
     const accountColor = ACCOUNT_PALETTE[accountIndex % ACCOUNT_PALETTE.length];
+    const accountStyle = {
+      itemStyle: {
+        color: accountColor,
+        borderColor: accountColor,
+      },
+      upperLabel: {
+        backgroundColor: accountColor,
+        color: "#ffffff",
+      },
+    };
     if (mode === "accounts") {
       return {
         id: `account:${account}`,
@@ -182,7 +199,7 @@ export function allocationTreeData(
         value: sizeValue(displayValue),
         displayValue,
         kind: "account",
-        itemStyle: { color: accountColor },
+        itemStyle: accountStyle,
       };
     }
 
@@ -210,7 +227,7 @@ export function allocationTreeData(
       value: children.reduce((sum, item) => sum + item.value, 0),
       displayValue,
       kind: "account",
-      itemStyle: { color: accountColor },
+      itemStyle: accountStyle,
       children,
     };
   });

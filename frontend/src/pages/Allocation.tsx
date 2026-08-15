@@ -117,7 +117,7 @@ export default function Allocation() {
             {
               itemStyle: {
                 borderColor: "#68778d",
-                borderWidth: mode === "accounts" ? 1 : 2,
+                borderWidth: mode === "accounts" ? 2 : 4,
                 gapWidth: 0,
               },
               upperLabel: { show: mode !== "accounts", height: 27 },
