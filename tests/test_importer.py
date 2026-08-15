@@ -51,6 +51,48 @@ def test_duplicate_source_rows_are_preserved(db, workbook_bytes) -> None:
     assert len(set(keys)) == 2
 
 
+def test_newer_import_does_not_swap_unique_keys_of_identical_rows(db, workbook_bytes) -> None:
+    duplicate = ["15/03/2026", "Courses", "Courant", 42.0, "EUR", ""]
+    old_file = workbook_bytes({"Dépenses": (TRANSACTION_HEADERS, [duplicate, duplicate])})
+    first = create_import_preview("old.xlsx", old_file, db=db)
+    apply_import_preview(first["id"], allow_deletions=False, db=db)
+
+    # Reproduce a valid database state where UUID order and Excel occurrence order disagree.
+    # The previous implementation tried to swap these two unique values one UPDATE at a time.
+    with db.transaction(immediate=True) as connection:
+        rows = connection.execute("SELECT id, source_key FROM transactions ORDER BY id").fetchall()
+        connection.execute("UPDATE transactions SET source_key = NULL")
+        connection.execute(
+            "UPDATE transactions SET source_key = ? WHERE id = ?",
+            (rows[1]["source_key"], rows[0]["id"]),
+        )
+        connection.execute(
+            "UPDATE transactions SET source_key = ? WHERE id = ?",
+            (rows[0]["source_key"], rows[1]["id"]),
+        )
+
+    new_row = ["16/03/2026", "Transport", "Courant", 10.0, "EUR", ""]
+    newer_file = workbook_bytes(
+        {"Dépenses": (TRANSACTION_HEADERS, [duplicate, duplicate, new_row])}
+    )
+    preview = create_import_preview("newer.xlsx", newer_file, db=db)
+    assert preview["total"] == {"added": 1, "removed": 0, "unchanged": 2}
+
+    result = apply_import_preview(preview["id"], allow_deletions=False, db=db)
+    assert result["applied"] == {
+        "added": 1,
+        "removed": 0,
+        "unchanged": 2,
+        "deletions_skipped": 0,
+    }
+    with db.read() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 3
+        assert (
+            connection.execute("SELECT COUNT(DISTINCT source_key) FROM transactions").fetchone()[0]
+            == 3
+        )
+
+
 def test_missing_rows_are_not_deleted_without_a_confirmed_sync(db, workbook_bytes) -> None:
     rows = [
         ["01/01/2026", "Salaire", "Courant", 2000, "EUR", ""],

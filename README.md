@@ -106,8 +106,6 @@ Le workflow `.github/workflows/ci-cd.yml` s’exécute sur chaque push et chaque
 
 Chaque push reçoit un tag immuable `sha-<commit>` et met à jour le tag de sa branche. La branche par défaut met aussi à jour `latest`, et les tags Git sont repris comme tags Docker. Le workflow utilise uniquement le `GITHUB_TOKEN` fourni par GitHub : aucun secret personnel n’est nécessaire.
 
-Pour préparer la branche avec un premier commit vide, puis importer l’archive complète, suivez [BRANCH_SETUP.md](BRANCH_SETUP.md).
-
 ## Variables d’environnement
 
 | Variable | Valeur par défaut | Rôle |
@@ -118,4 +116,4 @@ Pour préparer la branche avec un premier commit vide, puis importer l’archive
 
 Les comptes et valorisations utilisent l’euro comme devise de référence. Un ticker coté dans une autre devise est refusé lors de l’actualisation plutôt que d’être additionné silencieusement comme s’il s’agissait d’euros.
 
-Les cours ne sont jamais téléchargés pendant l’affichage d’une page. Le bouton « Actualiser les cours » déclenche explicitement la récupération via Yahoo Finance et conserve les résultats dans SQLite.
+Les cours ne sont jamais téléchargés pendant le simple affichage d’une page. L’ajout ou la modification d’une opération déclenche une actualisation, et le bouton « Actualiser les cours » permet de la relancer manuellement. Utilisez le symbole Yahoo Finance complet avec son suffixe de place (`CW8.PA`, par exemple) ; les erreurs par ticker sont affichées dans l’interface et les cours valides sont conservés dans SQLite.

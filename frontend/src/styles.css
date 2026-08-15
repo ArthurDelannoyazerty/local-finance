@@ -515,6 +515,11 @@ a {
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
+.field-help {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
 .input,
 .select,
 .textarea {

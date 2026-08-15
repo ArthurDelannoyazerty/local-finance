@@ -2,6 +2,11 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, subMonths } from "date-fns";
 import { api, searchParams } from "../api";
+import {
+  allocationTreeData,
+  type AllocationMode,
+  type AllocationTreeNode,
+} from "../chartOptions";
 import Chart from "../components/Chart";
 import {
   Empty,
@@ -24,21 +29,25 @@ type Item = {
   currency: string;
   start_value: number;
   net_contribution: number;
+  performance_absolute: number | null;
   performance_percent: number | null;
 };
 type Response = { date: string; start: string | null; items: Item[] };
-type Mode = "accounts" | "assets" | "performance";
 
-const performanceColor = (value: number | null) => {
-  if (value === null) return "#354153";
-  const magnitude = Math.min(1, Math.abs(value) / 25);
-  return value >= 0
-    ? `rgba(70, ${Math.round(150 + 65 * magnitude)}, ${Math.round(125 + 45 * magnitude)}, .9)`
-    : `rgba(${Math.round(185 + 55 * magnitude)}, ${Math.round(100 - 30 * magnitude)}, ${Math.round(105 - 20 * magnitude)}, .9)`;
+const signedMoney = (value: number | null | undefined) =>
+  value === null || value === undefined
+    ? "—"
+    : `${value > 0 ? "+" : ""}${money(value)}`;
+
+const signedPercent = (value: number | null | undefined) => {
+  const formatted = percent(value);
+  return value !== null && value !== undefined && value > 0
+    ? `+${formatted}`
+    : formatted;
 };
 
 export default function Allocation() {
-  const [mode, setMode] = useState<Mode>("assets");
+  const [mode, setMode] = useState<AllocationMode>("assets");
   const [at, setAt] = useState(format(new Date(), "yyyy-MM-dd"));
   const [start, setStart] = useState(
     format(subMonths(new Date(), 3), "yyyy-MM-dd"),
@@ -52,48 +61,14 @@ export default function Allocation() {
   });
   const items = query.data?.items ?? [];
   const option = useMemo(() => {
-    const visible =
-      mode === "performance"
-        ? items.filter((item) => item.type === "INVESTMENT")
-        : items;
-    const accounts = Array.from(new Set(visible.map((item) => item.account)));
-    const data = accounts.map((account) => {
-      const children = visible
-        .filter((item) => item.account === account)
-        .map((item) => ({
-          name: item.name,
-          value: item.value,
-          ticker: item.ticker,
-          performance: item.performance_percent,
-          itemStyle:
-            mode === "performance"
-              ? { color: performanceColor(item.performance_percent) }
-              : undefined,
-        }));
-      return mode === "accounts"
-        ? {
-            name: account,
-            value: children.reduce((sum, item) => sum + item.value, 0),
-          }
-        : {
-            name: account,
-            value: children.reduce((sum, item) => sum + item.value, 0),
-            children,
-          };
-    });
+    const data = allocationTreeData(items, mode);
     return {
       tooltip: {
-        formatter: (params: {
-          data: {
-            name: string;
-            value: number;
-            ticker?: string;
-            performance?: number | null;
-          };
-        }) => {
-          const value = `<strong>${params.data.name}</strong><br/>${money(params.data.value)}`;
-          return params.data.performance !== undefined
-            ? `${value}<br/>Performance : ${percent(params.data.performance)}`
+        formatter: (params: { data?: AllocationTreeNode }) => {
+          if (!params.data) return "";
+          const value = `<strong>${params.data.name}</strong><br/>Valeur : ${money(params.data.displayValue)}`;
+          return params.data.performancePercent !== undefined
+            ? `${value}<br/>Variation : ${signedMoney(params.data.performanceAbsolute)} · ${signedPercent(params.data.performancePercent)}`
             : value;
         },
       },
@@ -104,9 +79,9 @@ export default function Allocation() {
           roam: true,
           nodeClick: "zoomToNode",
           breadcrumb: {
-            show: true,
-            itemStyle: { color: "#182231", borderColor: "#283548" },
-            textStyle: { color: "#aab5c4" },
+            show: mode !== "accounts",
+            itemStyle: { color: "#253247", borderColor: "#536176" },
+            textStyle: { color: "#e5ebf3" },
           },
           upperLabel: {
             show: true,
@@ -116,27 +91,44 @@ export default function Allocation() {
           },
           label: {
             show: true,
-            formatter: (params: { name: string; value: number }) =>
-              `${params.name}\n${money(params.value)}`,
+            formatter: (params: { data?: AllocationTreeNode }) => {
+              if (!params.data?.id) return "";
+              if (mode === "performance" && params.data.kind === "asset") {
+                return `${params.data.name}\n${signedMoney(params.data.performanceAbsolute)}\n${signedPercent(params.data.performancePercent)}`;
+              }
+              return `${params.data.name}\n${money(params.data.displayValue)}`;
+            },
             color: "#f1f5fa",
             fontSize: 11,
             lineHeight: 17,
+            overflow: "truncate",
           },
-          itemStyle: { borderColor: "#0e1520", borderWidth: 3, gapWidth: 2 },
+          itemStyle: { borderColor: "#111a26", borderWidth: 1, gapWidth: 0 },
           levels: [
             {
               itemStyle: {
-                borderColor: "#0e1520",
+                borderColor: "#111a26",
                 borderWidth: 0,
-                gapWidth: 4,
+                gapWidth: 0,
               },
+              label: { show: false },
+              upperLabel: { show: false },
             },
             {
-              color: ["#356b69", "#385b83", "#725d3d", "#65507c", "#346779"],
-              colorMappingBy: "id",
-              itemStyle: { gapWidth: 3 },
+              itemStyle: {
+                borderColor: "#68778d",
+                borderWidth: mode === "accounts" ? 1 : 2,
+                gapWidth: 0,
+              },
+              upperLabel: { show: mode !== "accounts", height: 27 },
             },
-            { colorSaturation: [0.25, 0.55], itemStyle: { gapWidth: 1 } },
+            {
+              itemStyle: {
+                borderColor: "#172130",
+                borderWidth: 1,
+                gapWidth: 0,
+              },
+            },
           ],
         },
       ],
@@ -175,7 +167,7 @@ export default function Allocation() {
         title="Carte du patrimoine"
         description={
           mode === "performance"
-            ? "La performance tient compte des apports et retraits boursiers de la période."
+            ? "Variation absolue et relative corrigée des achats et ventes · rouge en baisse, gris stable, vert en hausse."
             : "Cliquez dans un bloc pour zoomer, utilisez le fil d’Ariane pour revenir."
         }
         action={
@@ -260,9 +252,17 @@ export default function Allocation() {
                     </td>
                     {mode === "performance" && (
                       <td
-                        className={`cell-number ${(item.performance_percent ?? 0) >= 0 ? "positive" : "negative"}`}
+                        className={`cell-number ${
+                          item.performance_percent === null
+                            ? ""
+                            : item.performance_percent >= 0
+                              ? "positive"
+                              : "negative"
+                        }`}
                       >
-                        {percent(item.performance_percent)}
+                        {item.performance_absolute === null
+                          ? "—"
+                          : `${signedMoney(item.performance_absolute)} · ${signedPercent(item.performance_percent)}`}
                       </td>
                     )}
                   </tr>

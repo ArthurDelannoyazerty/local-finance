@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, searchParams } from "../api";
+import { CATEGORY_PALETTE } from "../chartOptions";
 import Chart from "../components/Chart";
 import {
   Empty,
@@ -49,22 +50,14 @@ export default function Dashboard({ range }: { range: DateRangeValue }) {
       valueFormatter: (value: number) => money(value),
     },
     legend: { bottom: 0, textStyle: chartText, itemWidth: 9, itemHeight: 9 },
-    color: [
-      "#67e8b6",
-      "#72a5ff",
-      "#f5c66e",
-      "#ff8f8f",
-      "#b99cff",
-      "#5bd7e8",
-      "#a7d178",
-    ],
+    color: CATEGORY_PALETTE,
     series: [
       {
         type: "pie",
         radius: ["52%", "76%"],
         center: ["50%", "43%"],
-        padAngle: 2,
-        itemStyle: { borderRadius: 5, borderColor: "#101722", borderWidth: 3 },
+        padAngle: 0,
+        itemStyle: { borderRadius: 0, borderWidth: 0 },
         label: { show: false },
         data: data.expenses_by_category.map((item) => ({
           name: item.category,

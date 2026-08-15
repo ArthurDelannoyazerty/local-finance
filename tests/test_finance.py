@@ -4,6 +4,7 @@ import json
 from datetime import date
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from local_finance.ledger import (
@@ -16,6 +17,7 @@ from local_finance.ledger import (
     update_trade,
 )
 from local_finance.portfolio import (
+    allocation_snapshot,
     portfolio_snapshot,
     refresh_market_data,
     wealth_evolution,
@@ -125,6 +127,140 @@ def test_market_refresh_rejects_a_quote_in_another_currency(db, monkeypatch) -> 
     assert "AAPL" in result["errors"]
     with db.read() as connection:
         assert connection.execute("SELECT COUNT(*) FROM market_prices").fetchone()[0] == 0
+
+
+def test_market_refresh_backfills_older_trade_and_moves_the_investment_curve(
+    db,
+    monkeypatch,
+) -> None:
+    create_account(
+        AccountCreate(
+            name="PEA",
+            initial_balance=1000,
+            opening_balance_date=date(2026, 1, 1),
+        ),
+        db=db,
+    )
+    create_trade(
+        TradeInput(
+            date=date(2026, 1, 1),
+            ticker="CW8.PA",
+            name="World",
+            action="BUY",
+            quantity=1,
+            unit_price=100,
+            account="PEA",
+        ),
+        db=db,
+    )
+    with db.transaction(immediate=True) as connection:
+        connection.execute(
+            """
+            INSERT INTO market_prices(date, ticker, price, currency, fetched_at)
+            VALUES ('2026-01-20', 'CW8.PA', 110, 'EUR', '2026-01-20T00:00:00Z')
+            """
+        )
+
+    history_calls = []
+
+    class EuroTicker:
+        fast_info = SimpleNamespace(currency="EUR")
+
+        def history(self, **kwargs):
+            history_calls.append(kwargs)
+            return pd.DataFrame(
+                {"Close": [101.0, 103.0]},
+                index=pd.to_datetime(["2026-01-01", "2026-01-02"]),
+            )
+
+    monkeypatch.setattr("local_finance.portfolio.yf.Ticker", lambda _ticker: EuroTicker())
+    result = refresh_market_data(db=db)
+
+    assert result["errors"] == {}
+    assert result["updated"]["CW8.PA"] == 2
+    assert history_calls[0]["start"] == date(2026, 1, 1)
+    assert history_calls[0]["repair"] is True
+    evolution = wealth_evolution(date(2026, 1, 1), date(2026, 1, 2), db=db)
+    assert [item["total_investment"] for item in evolution["items"]] == [101, 103]
+
+
+def test_market_refresh_reports_an_empty_yahoo_result_as_an_error(db, monkeypatch) -> None:
+    create_account(AccountCreate(name="PEA"), db=db)
+    create_trade(
+        TradeInput(
+            date=date(2026, 1, 1),
+            ticker="NOT-A-TICKER",
+            name="Invalid",
+            action="BUY",
+            quantity=1,
+            unit_price=1,
+            account="PEA",
+        ),
+        db=db,
+    )
+
+    class EmptyTicker:
+        fast_info = SimpleNamespace(currency="EUR")
+
+        def history(self, **_kwargs):
+            return pd.DataFrame({"Close": []})
+
+    monkeypatch.setattr("local_finance.portfolio.yf.Ticker", lambda _ticker: EmptyTicker())
+    result = refresh_market_data(db=db)
+
+    assert "NOT-A-TICKER" in result["errors"]
+    assert "full symbol" in result["errors"]["NOT-A-TICKER"]
+
+
+def test_allocation_reports_cash_flow_adjusted_absolute_and_percent_performance(db) -> None:
+    create_account(
+        AccountCreate(
+            name="PEA",
+            initial_balance=1000,
+            opening_balance_date=date(2026, 1, 1),
+        ),
+        db=db,
+    )
+    create_trade(
+        TradeInput(
+            date=date(2026, 1, 1),
+            ticker="CW8.PA",
+            name="World",
+            action="BUY",
+            quantity=2,
+            unit_price=100,
+            account="PEA",
+        ),
+        db=db,
+    )
+    create_trade(
+        TradeInput(
+            date=date(2026, 1, 20),
+            ticker="CW8.PA",
+            name="World",
+            action="BUY",
+            quantity=1,
+            unit_price=120,
+            account="PEA",
+        ),
+        db=db,
+    )
+    with db.transaction(immediate=True) as connection:
+        connection.executemany(
+            """
+            INSERT INTO market_prices(date, ticker, price, currency)
+            VALUES (?, 'CW8.PA', ?, 'EUR')
+            """,
+            [("2026-01-10", 110), ("2026-02-10", 125)],
+        )
+
+    result = allocation_snapshot(date(2026, 2, 10), date(2026, 1, 10), db=db)
+    world = next(item for item in result["items"] if item["ticker"] == "CW8.PA")
+    assert world["value"] == pytest.approx(375)
+    assert world["start_value"] == pytest.approx(220)
+    assert world["net_contribution"] == pytest.approx(120)
+    assert world["performance_absolute"] == pytest.approx(35)
+    assert world["performance_percent"] == pytest.approx(35 / 340 * 100)
 
 
 def test_opening_dates_and_transfers_to_hidden_accounts_are_consistent(db) -> None:

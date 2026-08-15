@@ -3,6 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { format, subMonths } from "date-fns";
 import { Plus, X } from "lucide-react";
 import { api, searchParams } from "../api";
+import {
+  styledSankey,
+  type SankeyData,
+  type SankeyVariant,
+} from "../chartOptions";
 import Chart from "../components/Chart";
 import {
   Empty,
@@ -12,13 +17,14 @@ import {
   Panel,
 } from "../components/ui";
 
-type Sankey = {
-  nodes: { name: string }[];
-  links: { source: string; target: string; value: number }[];
+type Response = {
+  cash_flow: SankeyData;
+  transfers: SankeyData;
+  investments: SankeyData;
 };
-type Response = { cash_flow: Sankey; transfers: Sankey; investments: Sankey };
 
-function option(data: Sankey, colors: string[]) {
+function option(data: SankeyData, variant: SankeyVariant = "generic") {
+  const styled = styledSankey(data, variant);
   return {
     tooltip: {
       trigger: "item",
@@ -26,18 +32,17 @@ function option(data: Sankey, colors: string[]) {
       valueFormatter: (value: number) =>
         `${Math.round(value).toLocaleString("fr-FR")} €`,
     },
-    color: colors,
     series: [
       {
         type: "sankey",
-        data: data.nodes,
-        links: data.links,
+        data: styled.nodes,
+        links: styled.links,
         emphasis: { focus: "adjacency" },
-        nodeAlign: "justify",
+        nodeAlign: styled.nodeAlign,
         nodeGap: 14,
         nodeWidth: 15,
         layoutIterations: 40,
-        lineStyle: { color: "gradient", curveness: 0.52, opacity: 0.35 },
+        lineStyle: { curveness: 0.5, opacity: 0.52 },
         itemStyle: {
           borderColor: "rgba(255,255,255,.22)",
           borderWidth: 1,
@@ -126,12 +131,7 @@ export default function Flows() {
           >
             {query.data!.cash_flow.links.length ? (
               <Chart
-                option={option(query.data!.cash_flow, [
-                  "#67e8b6",
-                  "#72a5ff",
-                  "#ff8585",
-                  "#f5c66e",
-                ])}
+                option={option(query.data!.cash_flow, "cash-flow")}
                 height={510}
               />
             ) : (
@@ -147,14 +147,7 @@ export default function Flows() {
               description="Transferts internes, sans les confondre avec des dépenses."
             >
               {query.data!.transfers.links.length ? (
-                <Chart
-                  option={option(query.data!.transfers, [
-                    "#72a5ff",
-                    "#5bd7e8",
-                    "#b99cff",
-                  ])}
-                  height={350}
-                />
+                <Chart option={option(query.data!.transfers)} height={350} />
               ) : (
                 <Empty
                   title="Aucun transfert"
@@ -167,14 +160,7 @@ export default function Flows() {
               description="Achats et ventes reliant comptes et tickers."
             >
               {query.data!.investments.links.length ? (
-                <Chart
-                  option={option(query.data!.investments, [
-                    "#f5c66e",
-                    "#67e8b6",
-                    "#ff8f8f",
-                  ])}
-                  height={350}
-                />
+                <Chart option={option(query.data!.investments)} height={350} />
               ) : (
                 <Empty
                   title="Aucune opération boursière"

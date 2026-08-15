@@ -325,7 +325,13 @@ def portfolio_summary(*, db: Database = database) -> dict[str, Any]:
             """
         ).fetchone()
         market = connection.execute(
-            "SELECT MAX(fetched_at), MAX(date) FROM market_prices"
+            """
+            SELECT MAX(fetched_at), MAX(date) FROM market_prices
+            WHERE ticker IN (
+                SELECT DISTINCT ticker FROM investments
+                WHERE account IN (SELECT name FROM accounts WHERE is_visible = 1)
+            )
+            """
         ).fetchone()
     net_invested = float(row[0]) - float(row[1])
     pnl = current_value - net_invested
@@ -382,6 +388,7 @@ def allocation_snapshot(
                 **row,
                 "start_value": start_value,
                 "net_contribution": flow["buys"] - flow["sells"],
+                "performance_absolute": profit if row["type"] == "INVESTMENT" else None,
                 "performance_percent": profit / denominator * 100
                 if denominator > 0 and row["type"] == "INVESTMENT"
                 else None,
@@ -405,10 +412,10 @@ def refresh_market_data(*, db: Database = database) -> dict[str, Any]:
                     "SELECT DISTINCT ticker FROM investments ORDER BY ticker"
                 )
             ]
-            latest = {
-                row[0]: row[1]
+            price_bounds = {
+                row[0]: (row[1], row[2])
                 for row in connection.execute(
-                    "SELECT ticker, MAX(date) FROM market_prices GROUP BY ticker"
+                    "SELECT ticker, MIN(date), MAX(date) FROM market_prices GROUP BY ticker"
                 )
             }
             first_trades = {
@@ -427,17 +434,24 @@ def refresh_market_data(*, db: Database = database) -> dict[str, Any]:
         today = datetime.now(UTC).date()
         result = {"updated": {}, "errors": {}}
         for ticker in tickers:
-            start = (
-                date.fromisoformat(latest[ticker]) + timedelta(days=1)
-                if latest.get(ticker)
-                else date.fromisoformat(first_trades[ticker])
-            )
+            first_trade = date.fromisoformat(first_trades[ticker])
+            bounds = price_bounds.get(ticker)
+            if bounds:
+                first_price, latest_price = map(date.fromisoformat, bounds)
+                # Backfill if an older trade was added after the first refresh. Otherwise re-fetch
+                # the latest stored day so an intraday/partial close can be corrected.
+                start = first_trade if first_trade < first_price else latest_price
+            else:
+                start = first_trade
             if start > today:
                 result["updated"][ticker] = 0
                 continue
             try:
                 instrument = yf.Ticker(ticker)
-                quote_currency = str(instrument.fast_info.currency).upper()
+                quote_currency_value = instrument.fast_info.currency
+                if not quote_currency_value:
+                    raise ValueError(f"Yahoo Finance did not report a currency for {ticker}")
+                quote_currency = str(quote_currency_value).upper()
                 expected_currency = str(currencies.get(ticker, "EUR")).upper()
                 if quote_currency != expected_currency:
                     raise ValueError(
@@ -448,11 +462,14 @@ def refresh_market_data(*, db: Database = database) -> dict[str, Any]:
                     end=today + timedelta(days=1),
                     auto_adjust=True,
                     actions=False,
+                    repair=True,
                     raise_errors=True,
                 )
                 if frame.empty:
-                    result["updated"][ticker] = 0
-                    continue
+                    raise ValueError(
+                        f"Yahoo Finance returned no prices for {ticker}; check the full symbol "
+                        "and its exchange suffix (for example CW8.PA)"
+                    )
                 close = frame["Close"]
                 records = [
                     (
@@ -465,6 +482,10 @@ def refresh_market_data(*, db: Database = database) -> dict[str, Any]:
                     for index, value in close.items()
                     if not pd.isna(value)
                 ]
+                if not records:
+                    raise ValueError(
+                        f"Yahoo Finance returned no usable closing prices for {ticker}"
+                    )
                 with db.transaction(immediate=True) as connection:
                     connection.executemany(
                         """

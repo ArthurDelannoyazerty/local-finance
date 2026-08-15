@@ -202,21 +202,16 @@ def _existing_rows(
                 "comment": _text(row["comment"]),
                 "type": str(row["type"]),
             }
-            grouped[str(row["type"])].append({**normalised, "id": str(row["id"])})
-        for kind, rows in grouped.items():
-            occurrences: Counter[str] = Counter()
-            for row in rows:
-                content = {key: value for key, value in row.items() if key != "id"}
-                base = _base_signature(kind, content)
-                occurrence = occurrences[base]
-                occurrences[base] += 1
-                source_key = _key(base, occurrence)
-                result[kind][source_key] = {
-                    **content,
-                    "id": row["id"],
-                    "source_key": source_key,
-                    "source_occurrence": occurrence,
+            grouped[str(row["type"])].append(
+                {
+                    **normalised,
+                    "id": str(row["id"]),
+                    "stored_source_key": row["source_key"],
+                    "stored_source_occurrence": int(row["source_occurrence"] or 0),
                 }
+            )
+        for kind, rows in grouped.items():
+            result[kind] = _index_existing_kind(kind, rows)
 
     if "TRANSFER" in requested:
         records = connection.execute(
@@ -226,7 +221,7 @@ def _existing_rows(
             FROM transfers ORDER BY date, id
             """
         ).fetchall()
-        occurrences: Counter[str] = Counter()
+        grouped: list[dict[str, Any]] = []
         for record in records:
             row = row_to_dict(record)
             content = {
@@ -237,17 +232,63 @@ def _existing_rows(
                 "comment": _text(row["comment"]),
                 "type": "TRANSFER",
             }
-            base = _base_signature("TRANSFER", content)
-            occurrence = occurrences[base]
-            occurrences[base] += 1
-            source_key = _key(base, occurrence)
-            result["TRANSFER"][source_key] = {
-                **content,
-                "id": str(row["id"]),
+            grouped.append(
+                {
+                    **content,
+                    "id": str(row["id"]),
+                    "stored_source_key": row["source_key"],
+                    "stored_source_occurrence": int(row["source_occurrence"] or 0),
+                }
+            )
+        result["TRANSFER"] = _index_existing_kind("TRANSFER", grouped)
+    return result
+
+
+def _index_existing_kind(
+    kind: str,
+    rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Map database rows to canonical source keys without swapping valid duplicate keys.
+
+    Identical source rows differ only by their occurrence number. Their UUID order in SQLite is
+    unrelated to their order in the Excel file, so recomputing every occurrence by UUID can map a
+    stored key to the wrong row. Preserve every canonical key already present, then allocate only
+    the missing keys to legacy or inconsistent rows.
+    """
+
+    by_signature: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        content = {
+            key: value
+            for key, value in row.items()
+            if key not in {"id", "stored_source_key", "stored_source_occurrence"}
+        }
+        by_signature[_base_signature(kind, content)].append(row)
+
+    indexed: dict[str, dict[str, Any]] = {}
+    for base, matching_rows in by_signature.items():
+        available = {_key(base, occurrence): occurrence for occurrence in range(len(matching_rows))}
+        pending: list[dict[str, Any]] = []
+
+        for row in matching_rows:
+            stored_key = _text(row.get("stored_source_key"))
+            if stored_key and stored_key in available:
+                occurrence = available.pop(stored_key)
+                indexed[stored_key] = {
+                    **row,
+                    "source_key": stored_key,
+                    "source_occurrence": occurrence,
+                }
+            else:
+                pending.append(row)
+
+        for row, (source_key, occurrence) in zip(pending, available.items(), strict=True):
+            indexed[source_key] = {
+                **row,
                 "source_key": source_key,
                 "source_occurrence": occurrence,
             }
-    return result
+    return indexed
 
 
 def _state_hash(existing: dict[str, dict[str, dict[str, Any]]]) -> str:
@@ -259,8 +300,42 @@ def _display_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in row.items()
-        if key not in {"id", "source_key", "source_occurrence", "type"}
+        if key
+        not in {
+            "id",
+            "source_key",
+            "source_occurrence",
+            "stored_source_key",
+            "stored_source_occurrence",
+            "type",
+        }
     }
+
+
+def _persist_reconciled_source_keys(
+    connection: sqlite3.Connection,
+    table: str,
+    current: dict[str, dict[str, Any]],
+) -> None:
+    changed = [
+        (source_key, row)
+        for source_key, row in current.items()
+        if row.get("stored_source_key") != source_key
+        or row.get("stored_source_occurrence") != row["source_occurrence"]
+    ]
+    if not changed:
+        return
+
+    # Clear all keys that need reconciliation first. This makes swaps safe under the unique index;
+    # the enclosing transaction guarantees that a failure cannot expose partially cleared keys.
+    connection.executemany(
+        f"UPDATE {table} SET source_key = NULL WHERE id = ?",
+        [(row["id"],) for _, row in changed],
+    )
+    connection.executemany(
+        f"UPDATE {table} SET source_key = ?, source_occurrence = ? WHERE id = ?",
+        [(source_key, row["source_occurrence"], row["id"]) for source_key, row in changed],
+    )
 
 
 def create_import_preview(
@@ -377,19 +452,18 @@ def apply_import_preview(
             removed_keys = current.keys() - staged_rows.keys()
             unchanged_keys = staged_rows.keys() & current.keys()
 
+            table = "transfers" if kind == "TRANSFER" else "transactions"
+            _persist_reconciled_source_keys(connection, table, current)
+
             for key in unchanged_keys:
                 current_row = current[key]
-                table = "transfers" if kind == "TRANSFER" else "transactions"
                 connection.execute(
                     f"""
                     UPDATE {table}
-                    SET source_key = ?, source_occurrence = ?, import_batch_id = ?,
-                        imported_at = COALESCE(imported_at, ?)
+                    SET import_batch_id = ?, imported_at = COALESCE(imported_at, ?)
                     WHERE id = ?
                     """,
                     (
-                        key,
-                        staged_rows[key]["source_occurrence"],
                         batch_id,
                         now,
                         current_row["id"],
@@ -460,7 +534,6 @@ def apply_import_preview(
                     )
 
             if allow_deletions:
-                table = "transfers" if kind == "TRANSFER" else "transactions"
                 connection.executemany(
                     f"DELETE FROM {table} WHERE id = ?",
                     [(current[key]["id"],) for key in removed_keys],

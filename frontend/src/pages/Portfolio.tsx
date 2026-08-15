@@ -66,10 +66,12 @@ function TradeForm({
   trade,
   accounts,
   onClose,
+  onSaved,
 }: {
   trade: Trade | null;
   accounts: Account[];
   onClose: () => void;
+  onSaved: () => void;
 }) {
   const client = useQueryClient();
   const [form, setForm] = useState(() =>
@@ -94,6 +96,7 @@ function TradeForm({
         client.invalidateQueries({ queryKey: ["allocation"] }),
       ]);
       onClose();
+      onSaved();
     },
   });
   const set = (key: string, value: string | number) =>
@@ -135,6 +138,9 @@ function TradeForm({
             onChange={(e) => set("ticker", e.target.value.toUpperCase())}
             placeholder="CW8.PA"
           />
+          <small className="field-help">
+            Symbole Yahoo Finance complet, suffixe de place inclus (ex. CW8.PA).
+          </small>
         </div>
         <div className="field">
           <span>Nom du produit</span>
@@ -281,6 +287,7 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
       await Promise.all([
         client.invalidateQueries({ queryKey: ["portfolio-summary"] }),
         client.invalidateQueries({ queryKey: ["portfolio-evolution"] }),
+        client.invalidateQueries({ queryKey: ["allocation"] }),
       ]);
     },
   });
@@ -294,6 +301,7 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
         client.invalidateQueries({ queryKey: ["trades"] }),
         client.invalidateQueries({ queryKey: ["portfolio-summary"] }),
         client.invalidateQueries({ queryKey: ["portfolio-evolution"] }),
+        client.invalidateQueries({ queryKey: ["allocation"] }),
       ]);
     },
   });
@@ -696,6 +704,7 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
             trade={editing === "new" ? null : editing}
             accounts={accounts.data ?? []}
             onClose={() => setEditing(null)}
+            onSaved={() => refresh.mutate()}
           />
         </Modal>
       )}
