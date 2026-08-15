@@ -103,12 +103,12 @@ export default function Allocation() {
             lineHeight: 17,
             overflow: "truncate",
           },
-          itemStyle: { borderColor: "#111a26", borderWidth: 1, gapWidth: 0 },
+          itemStyle: { borderColor: "#111a26", borderWidth: 2, gapWidth: 0 },
           levels: [
             {
               itemStyle: {
                 borderColor: "#111a26",
-                borderWidth: 0,
+                borderWidth: 2,
                 gapWidth: 0,
               },
               label: { show: false },
@@ -125,7 +125,7 @@ export default function Allocation() {
             {
               itemStyle: {
                 borderColor: "#172130",
-                borderWidth: 1,
+                borderWidth: 2,
                 gapWidth: 0,
               },
             },
