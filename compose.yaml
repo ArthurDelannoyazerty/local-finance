@@ -1,0 +1,15 @@
+services:
+  local-finance:
+    build:
+      context: .
+      args:
+        APP_UID: ${LOCAL_FINANCE_UID:-1000}
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/data
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s

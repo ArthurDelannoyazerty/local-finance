@@ -26,6 +26,7 @@ venv.bak/
 **/__pycache__/**
 **/.ipynb_checkpoints/**
 *.pth
+pytest-of-root/
 
 # Large data
 cache/
@@ -48,3 +49,9 @@ logs/
 # Custom
 # Add here 
 
+# Frontend build
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
