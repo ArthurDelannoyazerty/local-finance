@@ -2,7 +2,6 @@ import {
   useEffect,
   useDeferredValue,
   useMemo,
-  useRef,
   useState,
   type FormEvent,
 } from "react";
@@ -16,7 +15,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { api, download, searchParams } from "../api";
-import type EChartsType from "echarts";
 import Chart from "../components/Chart";
 import {
   Empty,
@@ -259,7 +257,6 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
   const [editing, setEditing] = useState<Trade | "new" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isolated, setIsolated] = useState<string | null>(null);
-  const chartRef = useRef<EChartsType | null>(null);
   const deferredQuery = useDeferredValue(q);
   const summary = useQuery({
     queryKey: ["portfolio-summary"],
@@ -406,14 +403,11 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
     };
   }, [evolution.data, visibleSeries]);
 
-  const handleChartInit = (chart: EChartsType) => {
-    chartRef.current = chart;
-    // Double-clic sur une courbe : ne l’afficher qu’elle ; re-double-clic : tout réafficher.
-    chart.on("dblclick", (params) => {
-      const name = (params as { seriesName?: string })?.seriesName;
-      if (!name) return;
-      setIsolated((current) => (current === name ? null : name));
-    });
+  const handleChartDoubleClick = (params: unknown) => {
+    const name = (params as { seriesName?: string })?.seriesName;
+    if (!name) return;
+
+    setIsolated((current) => (current === name ? null : name));
   };
 
   const doExport = async (format: "csv" | "xlsx") => {
@@ -538,7 +532,11 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
         ) : evolution.error ? (
           <ErrorBlock error={evolution.error} />
         ) : evolution.data!.items.length ? (
-          <Chart option={chart} height={600} onInit={handleChartInit} />
+          <Chart
+            option={chart}
+            height={600}
+            onEvents={{ dblclick: handleChartDoubleClick }}
+          />
         ) : (
           <Empty
             title="Pas encore d’historique"
