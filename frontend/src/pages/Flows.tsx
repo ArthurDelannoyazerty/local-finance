@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, subMonths } from "date-fns";
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import { api, searchParams } from "../api";
 import {
   styledSankey,
@@ -54,6 +54,12 @@ function option(data: SankeyData, variant: SankeyVariant = "generic") {
   };
 }
 
+const monthLabel = (month: string) =>
+  new Intl.DateTimeFormat("fr-FR", {
+    month: "short",
+    year: "2-digit",
+  }).format(new Date(`${month}-01T12:00:00`));
+
 export default function Flows() {
   const defaults = useMemo(
     () =>
@@ -62,19 +68,31 @@ export default function Flows() {
       ),
     [],
   );
+  const available = useMemo(
+    () =>
+      Array.from({ length: 12 }, (_, index) =>
+        format(subMonths(new Date(), index), "yyyy-MM"),
+      ),
+    [],
+  );
   const [months, setMonths] = useState(defaults);
-  const [newMonth, setNewMonth] = useState(format(new Date(), "yyyy-MM"));
+  const [newMonth, setNewMonth] = useState("");
   const query = useQuery({
     queryKey: ["flows", months],
     queryFn: () =>
       api<Response>(`/api/flows${searchParams({ month: months })}`),
   });
-  const addMonth = () =>
+  const toggleMonth = (month: string) =>
     setMonths((current) =>
-      Array.from(new Set([...current, newMonth]))
-        .sort()
-        .reverse(),
+      current.includes(month)
+        ? current.filter((value) => value !== month)
+        : [...current, month].sort().reverse(),
     );
+  const addMonth = () => {
+    if (!newMonth) return;
+    toggleMonth(newMonth);
+    setNewMonth("");
+  };
   return (
     <>
       <PageHeader
@@ -83,32 +101,36 @@ export default function Flows() {
         description="Suivez le chemin de l’argent entre revenus, dépenses, comptes et investissements."
         actions={
           <div className="month-picker">
-            {months.map((month) => (
-              <span className="month-chip" key={month}>
-                {month}
+            <span className="month-picker-label">Mois affichés :</span>
+            <div className="month-options">
+              {available.map((month) => (
                 <button
-                  onClick={() =>
-                    setMonths((current) =>
-                      current.filter((value) => value !== month),
-                    )
-                  }
-                  aria-label={`Retirer ${month}`}
+                  key={month}
+                  className={`month-toggle ${months.includes(month) ? "on" : ""}`}
+                  onClick={() => toggleMonth(month)}
+                  aria-pressed={months.includes(month)}
                 >
-                  <X size={12} />
+                  {monthLabel(month)}
                 </button>
-              </span>
-            ))}
-            <input
-              className="input"
-              type="month"
-              value={newMonth}
-              onChange={(event) => setNewMonth(event.target.value)}
-              style={{ width: 140 }}
-            />
-            <button className="button button-secondary" onClick={addMonth}>
-              <Plus size={15} />
-              Ajouter
-            </button>
+              ))}
+            </div>
+            <div className="month-add">
+              <input
+                className="input"
+                type="month"
+                style={{ width: 150 }}
+                value={newMonth}
+                onChange={(event) => setNewMonth(event.target.value)}
+              />
+              <button
+                className="button button-secondary"
+                onClick={addMonth}
+                disabled={!newMonth || months.includes(newMonth)}
+              >
+                <Plus size={15} />
+                Ajouter
+              </button>
+            </div>
           </div>
         }
       />
@@ -120,7 +142,7 @@ export default function Flows() {
         <Panel>
           <Empty
             title="Aucun mois sélectionné"
-            description="Ajoutez au moins un mois pour reconstruire les flux."
+            description="Cliquez sur un mois ci-dessus pour reconstruire les flux."
           />
         </Panel>
       ) : (

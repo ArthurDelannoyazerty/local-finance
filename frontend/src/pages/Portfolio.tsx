@@ -1,4 +1,11 @@
-import { useDeferredValue, useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useDeferredValue,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Download,
@@ -9,6 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { api, download, searchParams } from "../api";
+import type EChartsType from "echarts";
 import Chart from "../components/Chart";
 import {
   Empty,
@@ -250,6 +258,8 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<Trade | "new" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [isolated, setIsolated] = useState<string | null>(null);
+  const chartRef = useRef<EChartsType | null>(null);
   const deferredQuery = useDeferredValue(q);
   const summary = useQuery({
     queryKey: ["portfolio-summary"],
@@ -306,7 +316,7 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
     },
   });
 
-  const chart = useMemo(() => {
+  const chartSeries = useMemo(() => {
     const items = evolution.data?.items ?? [];
     const common = {
       type: "line",
@@ -315,41 +325,62 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
       emphasis: { focus: "series" },
       areaStyle: { opacity: 0.04 },
     };
-    const series =
-      mode === "total"
-        ? [
-            {
-              ...common,
-              name: "Patrimoine net",
-              data: items.map((item) => item.total_wealth),
-              lineStyle: { color: "#67e8b6", width: 3 },
-              areaStyle: { color: "#67e8b6", opacity: 0.08 },
-            },
-            {
-              ...common,
-              name: "Dont investissements",
-              data: items.map((item) => item.total_investment),
-              lineStyle: { color: "#f5c66e", width: 2, type: "dashed" },
-              areaStyle: { opacity: 0 },
-            },
-          ]
-        : (evolution.data?.accounts ?? []).map((name, index) => ({
+    return mode === "total"
+      ? [
+          {
             ...common,
-            name,
-            stack: "accounts",
-            data: items.map((item) => item.accounts[name] ?? 0),
-            lineStyle: { width: 1.5 },
-            areaStyle: { opacity: 0.22 },
-            color: ["#67e8b6", "#72a5ff", "#f5c66e", "#b99cff", "#5bd7e8"][
-              index % 5
-            ],
-          }));
+            name: "Patrimoine net",
+            data: items.map((item) => item.total_wealth),
+            lineStyle: { color: "#67e8b6", width: 3 },
+            areaStyle: { color: "#67e8b6", opacity: 0.08 },
+          },
+          {
+            ...common,
+            name: "Dont investissements",
+            data: items.map((item) => item.total_investment),
+            lineStyle: { color: "#f5c66e", width: 2, type: "dashed" },
+            areaStyle: { opacity: 0 },
+          },
+        ]
+      : (evolution.data?.accounts ?? []).map((name, index) => ({
+          ...common,
+          name,
+          stack: "accounts",
+          data: items.map((item) => item.accounts[name] ?? 0),
+          lineStyle: { width: 1.5 },
+          areaStyle: { opacity: 0.22 },
+          color: ["#67e8b6", "#72a5ff", "#f5c66e", "#b99cff", "#5bd7e8"][
+            index % 5
+          ],
+        }));
+  }, [evolution.data, mode]);
+
+  const visibleSeries = useMemo(() => {
+    if (isolated) return chartSeries.filter((s) => s.name === isolated);
+    return chartSeries;
+  }, [chartSeries, isolated]);
+
+  // Réinitialise l'isolation si la courbe isolée disparaît (changement de vue).
+  useEffect(() => {
+    if (isolated && !chartSeries.some((s) => s.name === isolated)) {
+      setIsolated(null);
+    }
+  }, [chartSeries, isolated]);
+
+  const chart = useMemo(() => {
+    const items = evolution.data?.items ?? [];
     return {
       tooltip: {
         trigger: "axis",
         valueFormatter: (value: number) => money(value, "EUR", 2),
       },
-      legend: { top: 0, right: 0, textStyle: { color: "#8c9aae" } },
+      legend: {
+        top: 0,
+        right: 0,
+        icon: "none",
+        data: visibleSeries.map((s) => s.name),
+        textStyle: { color: "#8c9aae" },
+      },
       grid: { left: 54, right: 18, top: 46, bottom: 32 },
       xAxis: {
         type: "category",
@@ -371,9 +402,19 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
         splitLine: { lineStyle: { color: "rgba(255,255,255,.055)" } },
       },
       dataZoom: [{ type: "inside" }],
-      series,
+      series: visibleSeries,
     };
-  }, [evolution.data, mode]);
+  }, [evolution.data, visibleSeries]);
+
+  const handleChartInit = (chart: EChartsType) => {
+    chartRef.current = chart;
+    // Double-clic sur une courbe : ne l’afficher qu’elle ; re-double-clic : tout réafficher.
+    chart.on("dblclick", (params) => {
+      const name = (params as { seriesName?: string })?.seriesName;
+      if (!name) return;
+      setIsolated((current) => (current === name ? null : name));
+    });
+  };
 
   const doExport = async (format: "csv" | "xlsx") => {
     setExportError(null);
@@ -474,7 +515,7 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
       )}
       <Panel
         title="Évolution du patrimoine"
-        description="Les achats et ventes déplacent le cash vers les actifs sans créer de faux revenu ou dépense."
+        description="Les achats et ventes déplacent le cash vers les actifs. Double-cliquez sur une courbe pour ne l’afficher qu’elle, à nouveau pour tout réafficher."
         action={
           <div className="segmented">
             <button
@@ -497,7 +538,7 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
         ) : evolution.error ? (
           <ErrorBlock error={evolution.error} />
         ) : evolution.data!.items.length ? (
-          <Chart option={chart} height={470} />
+          <Chart option={chart} height={600} onInit={handleChartInit} />
         ) : (
           <Empty
             title="Pas encore d’historique"
@@ -506,7 +547,7 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
         )}
       </Panel>
       <Panel
-        className="panel-flush"
+        className="panel-flush portfolio-history"
         title="Historique boursier"
         description="Filtrez, corrigez et exportez les opérations enregistrées dans Local Finance."
         action={

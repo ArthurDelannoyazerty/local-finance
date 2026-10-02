@@ -802,6 +802,45 @@ th.cell-number {
   background: transparent;
   cursor: pointer;
 }
+.month-picker-label {
+  color: #687588;
+  font-size: 11px;
+  font-weight: 680;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.month-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 720px;
+}
+.month-toggle {
+  min-height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: #7d8a9d;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 11px;
+  font-weight: 620;
+  cursor: pointer;
+  transition: 120ms ease;
+}
+.month-toggle:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+.month-toggle.on {
+  border-color: rgba(103, 232, 182, 0.35);
+  background: rgba(103, 232, 182, 0.12);
+  color: #9fe8ca;
+}
+.month-add {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
 
 .import-drop {
   display: grid;
@@ -854,6 +893,9 @@ th.cell-number {
   font-size: 22px;
 }
 
+.portfolio-history {
+  margin-top: 26px;
+}
 .fire-layout {
   display: grid;
   grid-template-columns: 330px minmax(0, 1fr);

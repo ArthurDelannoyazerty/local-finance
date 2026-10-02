@@ -120,7 +120,6 @@ export default function Fire() {
     queryFn: () => api<Scenario[]>("/api/scenarios"),
   });
   const [draft, setDraft] = useState<ProjectionInput>(initial);
-  const [active, setActive] = useState<ProjectionInput>(initial);
   const [defaultsApplied, setDefaultsApplied] = useState(false);
   const [scenarioName, setScenarioName] = useState("Scénario principal");
   const [event, setEvent] = useState<LifeEvent>({
@@ -141,23 +140,24 @@ export default function Fire() {
         monthly_expenses: defaults.data.monthly_expenses,
       };
       setDraft(next);
-      setActive(next);
       setDefaultsApplied(true);
     }
   }, [defaults.data, defaultsApplied]);
   const projection = useQuery({
-    queryKey: ["projection", active],
+    queryKey: ["projection", draft],
     queryFn: () =>
       api<Projection>("/api/projections/calculate", {
         method: "POST",
-        body: JSON.stringify(active),
+        body: JSON.stringify(draft),
       }),
+    // Conserve la trajectoire précédente pendant le recalcul en cours.
+    placeholderData: (previousData) => previousData,
   });
   const monteCarlo = useMutation({
     mutationFn: () =>
       api<MonteCarlo>("/api/projections/monte-carlo", {
         method: "POST",
-        body: JSON.stringify(active),
+        body: JSON.stringify(draft),
       }),
   });
   const save = useMutation({
@@ -202,14 +202,14 @@ export default function Fire() {
     const items = data.items;
     const series: Record<string, unknown>[] = [
       {
-        name: active.show_real
+        name: draft.show_real
           ? "Patrimoine net réel"
           : "Patrimoine net nominal",
         type: "line",
         symbol: "none",
         smooth: 0.15,
         data: items.map((item) =>
-          active.show_real ? item.net_real : item.net_nominal,
+          draft.show_real ? item.net_real : item.net_nominal,
         ),
         lineStyle: { color: "#67e8b6", width: 3 },
         areaStyle: { color: "#67e8b6", opacity: 0.08 },
@@ -219,10 +219,10 @@ export default function Fire() {
           label: { color: "#8c9aae", formatter: "{b}" },
           lineStyle: { color: "#415066", type: "dashed" },
           data: [
-            active.stop_working_age
+            draft.stop_working_age
               ? {
                   name: "Arrêt",
-                  xAxis: active.stop_working_age,
+                  xAxis: draft.stop_working_age,
                   lineStyle: { color: "#ff8585" },
                 }
               : null,
@@ -239,9 +239,9 @@ export default function Fire() {
     ];
     const targetValues = (value: number) =>
       items.map((item) =>
-        active.show_real
+        draft.show_real
           ? value
-          : value * (1 + active.inflation_rate) ** item.year,
+          : value * (1 + draft.inflation_rate) ** item.year,
       );
     const horizontal = (name: string, value: number, color: string) => ({
       name,
@@ -267,32 +267,41 @@ export default function Fire() {
     );
     if (showCoast) {
       const realReturn =
-        (1 + active.annual_return_rate) / (1 + active.inflation_rate) - 1;
-      const rate = active.show_real ? realReturn : active.annual_return_rate;
-      const retirementTarget = active.show_real
+        (1 + draft.annual_return_rate) / (1 + draft.inflation_rate) - 1;
+      const rate = draft.show_real ? realReturn : draft.annual_return_rate;
+      const retirementTarget = draft.show_real
         ? data.metrics.fire_target
         : data.metrics.fire_target *
-          (1 + active.inflation_rate) **
-            (active.retirement_age - active.current_age);
+          (1 + draft.inflation_rate) **
+            (draft.retirement_age - draft.current_age);
       series.push({
         name: "Coast FIRE",
         type: "line",
         symbol: "none",
         data: items.map((item) =>
-          item.age <= active.retirement_age
+          item.age <= draft.retirement_age
             ? retirementTarget /
-              (1 + rate) ** (active.retirement_age - item.age)
+              (1 + rate) ** (draft.retirement_age - item.age)
             : null,
         ),
         lineStyle: { color: "#f5c66e", width: 2, type: "dotted" },
       });
     }
     return {
+      animation: false,
       tooltip: {
         trigger: "axis",
-        valueFormatter: (value: number) => money(value),
+        valueFormatter: (value: number) =>
+          value === null || value === undefined
+            ? ""
+            : money(Math.round(value)),
       },
-      legend: { top: 0, right: 0, textStyle: { color: "#8c9aae" } },
+      legend: {
+        top: 0,
+        right: 0,
+        icon: "none",
+        textStyle: { color: "#8c9aae" },
+      },
       grid: { left: 58, right: 18, top: 46, bottom: 36 },
       xAxis: {
         type: "category",
@@ -312,16 +321,25 @@ export default function Fire() {
       dataZoom: [{ type: "inside" }],
       series,
     };
-  }, [data, active, showLean, showFat, showCoast, milestones]);
+  }, [data, draft, showLean, showFat, showCoast, milestones]);
   const mcChart = useMemo(() => {
     const result = monteCarlo.data;
     if (!result) return {};
     return {
+      animation: false,
       tooltip: {
         trigger: "axis",
-        valueFormatter: (value: number) => money(value),
+        valueFormatter: (value: number) =>
+          value === null || value === undefined
+            ? ""
+            : money(Math.round(value)),
       },
-      legend: { top: 0, right: 0, textStyle: { color: "#8c9aae" } },
+      legend: {
+        top: 0,
+        right: 0,
+        icon: "none",
+        textStyle: { color: "#8c9aae" },
+      },
       grid: { left: 58, right: 18, top: 45, bottom: 34 },
       xAxis: {
         type: "category",
@@ -330,6 +348,7 @@ export default function Fire() {
       },
       yAxis: {
         type: "value",
+        scale: true,
         axisLabel: {
           color: "#748195",
           formatter: (value: number) => `${Math.round(value / 1000)}k`,
@@ -342,7 +361,7 @@ export default function Fire() {
           type: "line",
           stack: "band",
           symbol: "none",
-          data: result.items.map((item) => item.p10),
+          data: result.items.map((item) => Math.max(0, item.p10)),
           lineStyle: { opacity: 0 },
           areaStyle: { opacity: 0 },
         },
@@ -351,7 +370,9 @@ export default function Fire() {
           type: "line",
           stack: "band",
           symbol: "none",
-          data: result.items.map((item) => item.p90 - item.p10),
+          data: result.items.map((item) =>
+            Math.max(0, item.p90) - Math.max(0, item.p10),
+          ),
           lineStyle: { opacity: 0 },
           areaStyle: { color: "#72a5ff", opacity: 0.18 },
         },
@@ -376,7 +397,7 @@ export default function Fire() {
         <Panel
           className="fire-controls"
           title="Hypothèses"
-          description="Modifiez librement, puis appliquez les changements au graphique."
+          description="Modifiez librement, la trajectoire et la simulation se recalculent à chaque changement."
         >
           <div className="control-section">
             <h3>Profil</h3>
@@ -527,16 +548,6 @@ export default function Fire() {
               Afficher en euros constants
             </label>
           </div>
-          <button
-            className="button button-primary"
-            style={{ width: "100%" }}
-            onClick={() => {
-              setActive(draft);
-              monteCarlo.reset();
-            }}
-          >
-            Recalculer
-          </button>
           <div className="control-section">
             <h3>Scénario</h3>
             <input
@@ -565,10 +576,7 @@ export default function Fire() {
                 const selected = scenarios.data?.find(
                   (item) => item.id === e.target.value,
                 );
-                if (selected) {
-                  setDraft(selected.parameters);
-                  setActive(selected.parameters);
-                }
+                if (selected) setDraft(selected.parameters);
               }}
             >
               <option value="">Charger un scénario…</option>
@@ -780,7 +788,7 @@ export default function Fire() {
                 <Dice5 size={15} />
                 {monteCarlo.isPending
                   ? "Simulation…"
-                  : `${active.simulations} simulations`}
+                  : `${draft.simulations} simulations`}
               </button>
             }
           >

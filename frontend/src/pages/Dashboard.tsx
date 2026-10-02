@@ -49,7 +49,13 @@ export default function Dashboard({ range }: { range: DateRangeValue }) {
       trigger: "item",
       valueFormatter: (value: number) => money(value),
     },
-    legend: { bottom: 0, textStyle: chartText, itemWidth: 9, itemHeight: 9 },
+    legend: {
+      bottom: 0,
+      icon: "none",
+      textStyle: chartText,
+      itemWidth: 9,
+      itemHeight: 9,
+    },
     color: CATEGORY_PALETTE,
     series: [
       {
@@ -70,7 +76,13 @@ export default function Dashboard({ range }: { range: DateRangeValue }) {
         type: "text",
         left: "center",
         top: "34%",
-        style: { text: "DÉPENSES", fill: "#758297", font: "600 10px Inter" },
+        style: {
+          text: "DÉPENSES",
+          fill: "#758297",
+          fontWeight: 600,
+          fontSize: 10,
+          fontFamily: "Inter, sans-serif",
+        },
       },
       {
         type: "text",
@@ -79,7 +91,12 @@ export default function Dashboard({ range }: { range: DateRangeValue }) {
         style: {
           text: money(data.totals.expense),
           fill: "#eef2f8",
-          font: "650 22px Inter",
+          fontWeight: 650,
+          fontSize: 20,
+          fontFamily: "Inter, sans-serif",
+          overflow: "truncate",
+          width: 190,
+          align: "center",
         },
       },
     ],
@@ -90,19 +107,36 @@ export default function Dashboard({ range }: { range: DateRangeValue }) {
       axisPointer: { type: "shadow" },
       valueFormatter: (value: number) => money(value),
     },
-    legend: { top: 0, right: 0, textStyle: chartText },
+    legend: { top: 0, right: 0, icon: "none", textStyle: chartText },
     grid: { left: 42, right: 18, top: 44, bottom: 30 },
     xAxis: {
       type: "category",
       data: data.monthly.map((item) => item.month),
-      axisLabel: chartText,
+      axisLabel: {
+        ...chartText,
+        fontSize: 11,
+        color: "#9aa6b8",
+        formatter: (value: string) => {
+          const [, month] = value.split("-");
+          const label = new Intl.DateTimeFormat("fr-FR", {
+            month: "short",
+          }).format(new Date(`${value}-01T12:00:00`));
+          // L’année est rappelée chaque janvier, les autres mois se suivent seuls.
+          return month === "01" ? `${label}\n${value.slice(0, 4)}` : label;
+        },
+      },
       axisLine: { lineStyle: { color: "#273142" } },
     },
     yAxis: {
       type: "value",
       axisLabel: {
         ...chartText,
-        formatter: (value: number) => `${Math.round(value / 1000)}k`,
+        formatter: (value: number) => {
+          const k = value / 1000;
+          return Number.isInteger(k)
+            ? `${k}k`
+            : `${k.toFixed(1).replace(".", ",")}k`;
+        },
       },
       splitLine: { lineStyle: { color: "rgba(255,255,255,.055)" } },
     },
@@ -126,7 +160,7 @@ export default function Dashboard({ range }: { range: DateRangeValue }) {
         type: "line",
         data: data.monthly.map((item) => item.expense_average_3m),
         symbol: "none",
-        lineStyle: { color: "#f5c66e", width: 2, type: "dashed" },
+        lineStyle: { color: "#5bd7e8", width: 2, type: "dashed" },
       },
     ],
   };
