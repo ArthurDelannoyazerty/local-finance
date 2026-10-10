@@ -38,13 +38,13 @@ def csv_text(rows, delimiter=";", headers=HEADERS):
 
 
 def request(rows, **kwargs):
-    options = dict(
-        source="bourse-direct",
-        account="PEA",
-        csv_text=csv_text(rows),
-        date_format="dmy",
-        mappings={"TEST ETF": "TEST.PA"},
-    )
+    options = {
+        "source": "bourse-direct",
+        "account": "PEA",
+        "csv_text": csv_text(rows),
+        "date_format": "dmy",
+        "mappings": {"TEST ETF": "TEST.PA"},
+    }
     options.update(kwargs)
     return BrokerImportRequest(**options)
 
@@ -381,6 +381,7 @@ def test_manual_trades_cannot_precede_account_opening(broker_db):
 @pytest.mark.parametrize("balance", [float("inf"), float("-inf"), float("nan")])
 def test_financial_models_reject_nonfinite(balance):
     from pydantic import ValidationError
+
     from local_finance.schemas import AccountCreate
 
     with pytest.raises(ValidationError):
@@ -389,6 +390,7 @@ def test_financial_models_reject_nonfinite(balance):
 
 def test_financial_models_reject_blank_after_trim():
     from pydantic import ValidationError
+
     from local_finance.schemas import AccountCreate
 
     with pytest.raises(ValidationError):
@@ -397,6 +399,7 @@ def test_financial_models_reject_blank_after_trim():
 
 def test_formula_safe_exports_preserve_numeric_cells(broker_db):
     from openpyxl import load_workbook
+
     from local_finance.ledger import export_trades
 
     apply_rows(broker_db, [BUY])
@@ -413,8 +416,10 @@ def test_formula_safe_exports_preserve_numeric_cells(broker_db):
 
 
 def test_market_refresh_updates_last_cached_day(broker_db, monkeypatch):
-    import pandas as pd
     from types import SimpleNamespace
+
+    import pandas as pd
+
     from local_finance.portfolio import refresh_market_data
 
     apply_rows(broker_db, [BUY])
