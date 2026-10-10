@@ -29,9 +29,12 @@ export type MonteCarlo = {
   };
 };
 export type ProjectionResult<T> = { result: T; parameters: ProjectionInput };
-const money = (value: number) => new Intl.NumberFormat("fr-FR", {
-  style: "currency", currency: "EUR", maximumFractionDigits: 0,
-}).format(value);
+const money = (value: number) =>
+  new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 0,
+  }).format(value);
 
 function axes(input: ProjectionInput): ChartConfig {
   return {
@@ -65,46 +68,93 @@ export function projectionChart(
 ): ChartConfig {
   const { result: data, parameters: active } = response;
   const items = data.items;
-  const targets = (value: number) => items.map((item) => [
-    item.age,
-    active.show_real ? value : value * (1 + active.inflation_rate) ** item.year,
-  ]);
-  const horizontal = (name: string, value: number, color: string): SeriesConfig => ({
-    name, type: "line", symbol: "none", data: targets(value),
+  const targets = (value: number) =>
+    items.map((item) => [
+      item.age,
+      active.show_real
+        ? value
+        : value * (1 + active.inflation_rate) ** item.year,
+    ]);
+  const horizontal = (
+    name: string,
+    value: number,
+    color: string,
+  ): SeriesConfig => ({
+    name,
+    type: "line",
+    symbol: "none",
+    data: targets(value),
     lineStyle: { color, width: 1.5, type: "dashed" },
     emphasis: { disabled: true },
   });
   const markers = [
     active.stop_working_age !== null
-      ? { name: "Arrêt", xAxis: active.stop_working_age, lineStyle: { color: "#ff8585" } }
+      ? {
+          name: "Arrêt",
+          xAxis: active.stop_working_age,
+          lineStyle: { color: "#ff8585" },
+        }
       : null,
     data.metrics.tipping_age !== null
-      ? { name: "Bascule", xAxis: data.metrics.tipping_age, lineStyle: { color: "#72a5ff" } }
+      ? {
+          name: "Bascule",
+          xAxis: data.metrics.tipping_age,
+          lineStyle: { color: "#72a5ff" },
+        }
       : null,
   ].filter(Boolean);
-  const series: SeriesConfig[] = [{
-    name: active.show_real ? "Patrimoine net réel" : "Patrimoine net nominal",
-    type: "line", symbol: "none", smooth: 0.15,
-    data: items.map((item) => [item.age, active.show_real ? item.net_real : item.net_nominal]),
-    lineStyle: { color: "#67e8b6", width: 3 },
-    areaStyle: { color: "#67e8b6", opacity: 0.08 },
-    markLine: {
-      silent: true, symbol: "none",
-      label: { color: "#8c9aae", formatter: "{b}" },
-      lineStyle: { color: "#415066", type: "dashed" },
-      data: markers,
+  const series: SeriesConfig[] = [
+    {
+      name: active.show_real ? "Patrimoine net réel" : "Patrimoine net nominal",
+      type: "line",
+      symbol: "none",
+      smooth: 0.15,
+      data: items.map((item) => [
+        item.age,
+        active.show_real ? item.net_real : item.net_nominal,
+      ]),
+      lineStyle: { color: "#67e8b6", width: 3 },
+      areaStyle: { color: "#67e8b6", opacity: 0.08 },
+      markLine: {
+        silent: true,
+        symbol: "none",
+        label: { color: "#8c9aae", formatter: "{b}" },
+        lineStyle: { color: "#415066", type: "dashed" },
+        data: markers,
+      },
     },
-  }, horizontal("FIRE 4%", data.metrics.fire_target, "#72a5ff")];
-  if (showLean) series.push(horizontal("Lean FIRE", data.metrics.lean_fire_target, "#f5c66e"));
-  if (showFat) series.push(horizontal("Fat FIRE", data.metrics.fat_fire_target, "#b99cff"));
-  milestones.forEach((value) => series.push(horizontal(`${value / 1000}k`, value, "rgba(255,255,255,.4)")));
+    horizontal("FIRE 4%", data.metrics.fire_target, "#72a5ff"),
+  ];
+  if (showLean)
+    series.push(
+      horizontal("Lean FIRE", data.metrics.lean_fire_target, "#f5c66e"),
+    );
+  if (showFat)
+    series.push(
+      horizontal("Fat FIRE", data.metrics.fat_fire_target, "#b99cff"),
+    );
+  milestones.forEach((value) =>
+    series.push(horizontal(`${value / 1000}k`, value, "rgba(255,255,255,.4)")),
+  );
   if (showCoast) {
-    const realReturn = (1 + active.annual_return_rate) / (1 + active.inflation_rate) - 1;
+    const realReturn =
+      (1 + active.annual_return_rate) / (1 + active.inflation_rate) - 1;
     const rate = active.show_real ? realReturn : active.annual_return_rate;
-    const target = active.show_real ? data.metrics.fire_target : data.metrics.fire_target * (1 + active.inflation_rate) ** (active.retirement_age - active.current_age);
+    const target = active.show_real
+      ? data.metrics.fire_target
+      : data.metrics.fire_target *
+        (1 + active.inflation_rate) **
+          (active.retirement_age - active.current_age);
     series.push({
-      name: "Coast FIRE", type: "line", symbol: "none",
-      data: items.map((item) => [item.age, item.age <= active.retirement_age ? target / (1 + rate) ** (active.retirement_age - item.age) : null]),
+      name: "Coast FIRE",
+      type: "line",
+      symbol: "none",
+      data: items.map((item) => [
+        item.age,
+        item.age <= active.retirement_age
+          ? target / (1 + rate) ** (active.retirement_age - item.age)
+          : null,
+      ]),
       lineStyle: { color: "#f5c66e", width: 2, type: "dotted" },
     });
   }
@@ -112,13 +162,16 @@ export function projectionChart(
     ...axes(active),
     tooltip: {
       trigger: "axis",
-      valueFormatter: (value: number | number[]) => money(Array.isArray(value) ? value[1] : value),
+      valueFormatter: (value: number | number[]) =>
+        money(Array.isArray(value) ? value[1] : value),
     },
     series,
   };
 }
 
-export function monteCarloChart(response: ProjectionResult<MonteCarlo>): ChartConfig {
+export function monteCarloChart(
+  response: ProjectionResult<MonteCarlo>,
+): ChartConfig {
   const { result, parameters } = response;
   return {
     ...axes(parameters),
@@ -133,19 +186,32 @@ export function monteCarloChart(response: ProjectionResult<MonteCarlo>): ChartCo
     },
     series: [
       {
-        name: "Zone 80%", type: "line", stack: "band", stackStrategy: "all", symbol: "none",
+        name: "Zone 80%",
+        type: "line",
+        stack: "band",
+        stackStrategy: "all",
+        symbol: "none",
         data: result.items.map((item) => [item.age, item.p10]),
-        lineStyle: { opacity: 0 }, areaStyle: { opacity: 0 },
-        emphasis: { disabled: true }, tooltip: { show: false },
+        lineStyle: { opacity: 0 },
+        areaStyle: { opacity: 0 },
+        emphasis: { disabled: true },
+        tooltip: { show: false },
       },
       {
-        name: "Zone 80%", type: "line", stack: "band", stackStrategy: "all", symbol: "none",
+        name: "Zone 80%",
+        type: "line",
+        stack: "band",
+        stackStrategy: "all",
+        symbol: "none",
         data: result.items.map((item) => [item.age, item.p90 - item.p10]),
-        lineStyle: { opacity: 0 }, areaStyle: { color: "#72a5ff", opacity: 0.18 },
+        lineStyle: { opacity: 0 },
+        areaStyle: { color: "#72a5ff", opacity: 0.18 },
         emphasis: { disabled: true },
       },
       {
-        name: "Médiane", type: "line", symbol: "none",
+        name: "Médiane",
+        type: "line",
+        symbol: "none",
         data: result.items.map((item) => [item.age, item.p50]),
         lineStyle: { color: "#67e8b6", width: 3 },
       },

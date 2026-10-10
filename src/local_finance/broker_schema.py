@@ -1,4 +1,5 @@
 """Additive broker-import tables; deliberately separate from Android-owned data."""
+
 from __future__ import annotations
 
 import sqlite3

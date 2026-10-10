@@ -135,14 +135,25 @@ export default function Chart({
       const next = (["x", "y"] as const).flatMap((dimension) =>
         asArray(config[`${dimension}Axis`]).flatMap((_, index) => {
           const finder = { [`${dimension}AxisIndex`]: index };
-          const first = chart.convertFromPixel(finder, current.start[dimension]);
+          const first = chart.convertFromPixel(
+            finder,
+            current.start[dimension],
+          );
           const last = chart.convertFromPixel(finder, end[dimension]);
-          if (typeof first !== "number" || typeof last !== "number" || !Number.isFinite(first) || !Number.isFinite(last)) return [];
-          return [{
-            id: `local-${dimension}-${index}`,
-            startValue: Math.min(first, last),
-            endValue: Math.max(first, last),
-          }];
+          if (
+            typeof first !== "number" ||
+            typeof last !== "number" ||
+            !Number.isFinite(first) ||
+            !Number.isFinite(last)
+          )
+            return [];
+          return [
+            {
+              id: `local-${dimension}-${index}`,
+              startValue: Math.min(first, last),
+              endValue: Math.max(first, last),
+            },
+          ];
         }),
       );
       setZoom(next);
@@ -174,7 +185,9 @@ export default function Chart({
                 }));
               }}
               onDoubleClick={() =>
-                setSelected(isolateLegend(names, beforeClick.current, entry.name))
+                setSelected(
+                  isolateLegend(names, beforeClick.current, entry.name),
+                )
               }
               onKeyDown={(event) => {
                 if (event.shiftKey && event.key === "Enter") {
@@ -183,7 +196,12 @@ export default function Chart({
                 }
               }}
             >
-              <svg width="26" height="12" viewBox="0 0 26 12" aria-hidden="true">
+              <svg
+                width="26"
+                height="12"
+                viewBox="0 0 26 12"
+                aria-hidden="true"
+              >
                 {entry.line ? (
                   <line
                     x1="1"
@@ -195,7 +213,14 @@ export default function Chart({
                     strokeDasharray={entry.dash}
                   />
                 ) : (
-                  <rect x="1" y="1" width="24" height="10" rx="2" fill={entry.color} />
+                  <rect
+                    x="1"
+                    y="1"
+                    width="24"
+                    height="10"
+                    rx="2"
+                    fill={entry.color}
+                  />
                 )}
               </svg>
               {entry.name}
@@ -234,7 +259,12 @@ export default function Chart({
             const end = point(event);
             // Capture only an actual drag; ordinary clicks must still reach
             // the canvas (notably treemap drill-down and breadcrumbs).
-            if (Math.max(Math.abs(end.x - current.start.x), Math.abs(end.y - current.start.y)) >= 8) {
+            if (
+              Math.max(
+                Math.abs(end.x - current.start.x),
+                Math.abs(end.y - current.start.y),
+              ) >= 8
+            ) {
               event.currentTarget.setPointerCapture(event.pointerId);
               moved.current = true;
             }
@@ -273,13 +303,18 @@ export default function Chart({
             option={prepared}
             notMerge
             lazyUpdate={false}
-            onChartReady={(chart: Instance) => { instance.current = chart; }}
+            onChartReady={(chart: Instance) => {
+              instance.current = chart;
+            }}
             style={{ height, width: "100%" }}
             opts={{ renderer: "canvas" }}
           />
         </div>
         {drag && (
-          <div className="chart-selection" style={selectionRect(drag.start, drag.end)} />
+          <div
+            className="chart-selection"
+            style={selectionRect(drag.start, drag.end)}
+          />
         )}
       </div>
     </div>

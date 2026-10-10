@@ -114,8 +114,22 @@
   }
 }
 
-.broker-candidate { padding: 14px 0; border-bottom: 1px solid var(--border); }
-.broker-candidate-info { display: grid; gap: 6px; margin-top: 8px; }
-.broker-candidate-info small { color: var(--muted); }
-.broker-candidate-info a { color: var(--accent); text-decoration: underline; }
-.broker-candidate-info button { justify-self: start; }
+.broker-candidate {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.broker-candidate-info {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.broker-candidate-info small {
+  color: var(--muted);
+}
+.broker-candidate-info a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.broker-candidate-info button {
+  justify-self: start;
+}

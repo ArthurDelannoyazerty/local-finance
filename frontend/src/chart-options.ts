@@ -52,7 +52,7 @@ export const palette = [
   "#5bd7e8",
   "#ff8585",
 ];
-export const asArray = <T,>(value: T | T[] | undefined): T[] =>
+export const asArray = <T>(value: T | T[] | undefined): T[] =>
   value === undefined ? [] : Array.isArray(value) ? value : [value];
 
 export function legendEntries(config: ChartConfig): LegendEntry[] {

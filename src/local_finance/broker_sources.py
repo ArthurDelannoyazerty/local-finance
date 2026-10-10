@@ -1,4 +1,5 @@
 """Pure source adapters: parse input, but never change the ledger."""
+
 from __future__ import annotations
 
 import csv
@@ -68,7 +69,11 @@ def parse_date(raw: str, date_format: DateFormat) -> str:
     if not re.fullmatch(r"\d{1,2}/\d{1,2}/\d{4}", raw):
         raise ValueError(f"Date non reconnue : {raw}")
     try:
-        return datetime.strptime(raw, "%d/%m/%Y" if date_format == "dmy" else "%m/%d/%Y").date().isoformat()
+        return (
+            datetime.strptime(raw, "%d/%m/%Y" if date_format == "dmy" else "%m/%d/%Y")
+            .date()
+            .isoformat()
+        )
     except ValueError as exc:
         raise ValueError(f"Date {raw} incompatible avec le format choisi") from exc
 
@@ -105,7 +110,9 @@ def _operation(values: dict[str, str], line: int, date_format: DateFormat) -> di
             quantity = abs(quantity)
             fees = quantity * price - credit
         if fees < 0:
-            raise ValueError("Frais calculés négatifs : vérifier le cours, le montant et les décimales")
+            raise ValueError(
+                "Frais calculés négatifs : vérifier le cours, le montant et les décimales"
+            )
     elif designation.startswith("INVESTISSEMENT ESPECES "):
         kind = "DEPOSIT"
     elif designation.startswith("REGULARISATION PEA INT. RBT "):
@@ -142,7 +149,9 @@ def parse_bourse_direct(text: str, date_format: DateFormat) -> ParsedImport:
     reader = None
     headers: list[str] = []
     for delimiter in (";", ",", "\t"):
-        candidate = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter, strict=True, skipinitialspace=True)
+        candidate = csv.reader(
+            io.StringIO(text, newline=""), delimiter=delimiter, strict=True, skipinitialspace=True
+        )
         try:
             first = next(candidate)
         except (StopIteration, csv.Error):
@@ -166,20 +175,33 @@ def parse_bourse_direct(text: str, date_format: DateFormat) -> ParsedImport:
                 break
             try:
                 if len(record) != len(headers):
-                    raise ValueError("Nombre de colonnes incorrect ; vérifier le séparateur et les guillemets")
-                result.rows.append(_operation(dict(zip(headers, record)), reader.line_num, date_format))
+                    raise ValueError(
+                        "Nombre de colonnes incorrect ; vérifier le séparateur et les guillemets"
+                    )
+                result.rows.append(
+                    _operation(dict(zip(headers, record)), reader.line_num, date_format)
+                )
             except ValueError as exc:
                 result.errors.append(f"Ligne {reader.line_num} : {exc}")
     except csv.Error as exc:
         result.errors.append(f"CSV mal formé, ligne {reader.line_num} : {exc}")
     if not count:
         result.errors.append("Le CSV ne contient aucune opération")
-    if any("/" in row["raw_date"] and all(int(x) <= 12 for x in row["raw_date"].split("/")[:2]) for row in result.rows):
-        result.warnings.append("Dates ambiguës : vérifier les dates ISO de l'aperçu. Ne pas mélanger JJ/MM et MM/JJ.")
+    if any(
+        "/" in row["raw_date"] and all(int(x) <= 12 for x in row["raw_date"].split("/")[:2])
+        for row in result.rows
+    ):
+        result.warnings.append(
+            "Dates ambiguës : vérifier les dates ISO de l'aperçu. Ne pas mélanger JJ/MM et MM/JJ."
+        )
     today = datetime.now(UTC).date().isoformat()
     if any(row["date"] > today for row in result.rows):
-        result.warnings.append("Des opérations sont datées dans le futur : vérifier le format choisi.")
-    result.warnings.append("Les frais sont le résidu montant net / quantité × cours : ils peuvent inclure taxes et arrondis.")
+        result.warnings.append(
+            "Des opérations sont datées dans le futur : vérifier le format choisi."
+        )
+    result.warnings.append(
+        "Les frais sont le résidu montant net / quantité × cours : ils peuvent inclure taxes et arrondis."
+    )
     return result
 
 

@@ -3,7 +3,8 @@ export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 export function validateCsvText(text: string): string {
   text = text.replace(/^\uFEFF/, "");
   if (!text.trim()) throw new Error("Le fichier est vide.");
-  if (text.includes("\0")) throw new Error("Le fichier n'est pas un texte CSV lisible.");
+  if (text.includes("\0"))
+    throw new Error("Le fichier n'est pas un texte CSV lisible.");
   if (new TextEncoder().encode(text).length > MAX_IMPORT_BYTES) {
     throw new Error("Le CSV dépasse la limite de 5 Mo.");
   }

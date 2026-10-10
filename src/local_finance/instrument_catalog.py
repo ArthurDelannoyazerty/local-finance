@@ -4,6 +4,7 @@ The CSV does not include ISINs. Published ISIN/listing data confirms that the
 candidates exist, not that a shortened broker label uniquely identifies them.
 Do not use this normaliser for the import receipt's identity.
 """
+
 from __future__ import annotations
 
 import re

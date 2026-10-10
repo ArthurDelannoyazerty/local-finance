@@ -465,38 +465,38 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
         </div>
       )}
       <div style={{ marginBottom: 24 }}>
-      <Panel
-        title="Évolution du patrimoine"
-        action={
-          <div className="segmented">
-            <button
-              className={mode === "total" ? "active" : ""}
-              onClick={() => setMode("total")}
-            >
-              Total
-            </button>
-            <button
-              className={mode === "accounts" ? "active" : ""}
-              onClick={() => setMode("accounts")}
-            >
-              Par compte
-            </button>
-          </div>
-        }
-      >
-        {evolution.isLoading ? (
-          <Loading />
-        ) : evolution.error ? (
-          <ErrorBlock error={evolution.error} />
-        ) : evolution.data!.items.length ? (
-          <Chart option={chart} height={470} />
-        ) : (
-          <Empty
-            title="Pas encore d’historique"
-            description="Ajoutez un compte ou importez des transactions pour commencer."
-          />
-        )}
-      </Panel>
+        <Panel
+          title="Évolution du patrimoine"
+          action={
+            <div className="segmented">
+              <button
+                className={mode === "total" ? "active" : ""}
+                onClick={() => setMode("total")}
+              >
+                Total
+              </button>
+              <button
+                className={mode === "accounts" ? "active" : ""}
+                onClick={() => setMode("accounts")}
+              >
+                Par compte
+              </button>
+            </div>
+          }
+        >
+          {evolution.isLoading ? (
+            <Loading />
+          ) : evolution.error ? (
+            <ErrorBlock error={evolution.error} />
+          ) : evolution.data!.items.length ? (
+            <Chart option={chart} height={470} />
+          ) : (
+            <Empty
+              title="Pas encore d’historique"
+              description="Ajoutez un compte ou importez des transactions pour commencer."
+            />
+          )}
+        </Panel>
       </div>
       <Panel
         className="panel-flush"

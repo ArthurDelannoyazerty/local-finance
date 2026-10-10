@@ -13,32 +13,48 @@ export default function MonthSelector({
   onChange: (months: string[]) => void;
 }) {
   const chosen = new Set(selected);
-  const years = [...new Set(months.map((month) => month.slice(0, 4)))].reverse();
+  const years = [
+    ...new Set(months.map((month) => month.slice(0, 4))),
+  ].reverse();
   return (
     <details className="month-selector">
-      <summary>
-        Choisir les mois · {selected.length} sélectionnés
-      </summary>
+      <summary>Choisir les mois · {selected.length} sélectionnés</summary>
       <div className="month-selector-body">
         <div className="month-presets">
           <button
             type="button"
             className="button button-ghost"
-            onClick={() => onChange(months.filter((month) => month <= today.slice(0, 7)).slice(-3))}
+            onClick={() =>
+              onChange(
+                months.filter((month) => month <= today.slice(0, 7)).slice(-3),
+              )
+            }
           >
             3 derniers mois
           </button>
           <button
             type="button"
             className="button button-ghost"
-            onClick={() => onChange(months.filter((month) => month.startsWith(today.slice(0, 4))))}
+            onClick={() =>
+              onChange(
+                months.filter((month) => month.startsWith(today.slice(0, 4))),
+              )
+            }
           >
             Cette année
           </button>
-          <button type="button" className="button button-ghost" onClick={() => onChange(months)}>
+          <button
+            type="button"
+            className="button button-ghost"
+            onClick={() => onChange(months)}
+          >
             Tout
           </button>
-          <button type="button" className="button button-ghost" onClick={() => onChange([])}>
+          <button
+            type="button"
+            className="button button-ghost"
+            onClick={() => onChange([])}
+          >
             Aucun
           </button>
         </div>
@@ -62,7 +78,15 @@ export default function MonthSelector({
                       <input
                         type="checkbox"
                         checked={chosen.has(month)}
-                        onChange={(event) => onChange(toggleMonths(selected, [month], event.target.checked))}
+                        onChange={(event) =>
+                          onChange(
+                            toggleMonths(
+                              selected,
+                              [month],
+                              event.target.checked,
+                            ),
+                          )
+                        }
                       />
                       {monthLabel(month)}
                     </label>

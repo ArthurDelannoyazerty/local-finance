@@ -1,4 +1,5 @@
 """Broker endpoints are separate from the existing Android Excel routes."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -28,9 +29,10 @@ def _error(exc: Exception) -> HTTPException:
 @router.get("/sources")
 def sources() -> list[dict]:
     return [
-        {"id": key, "label": source.label, "mode": "csv"}
-        for key, source in SOURCES.items()
-    ] + [{"id": "android-excel", "label": "Android — Excel", "mode": "existing", "path": "/donnees"}]
+        {"id": key, "label": source.label, "mode": "csv"} for key, source in SOURCES.items()
+    ] + [
+        {"id": "android-excel", "label": "Android — Excel", "mode": "existing", "path": "/donnees"}
+    ]
 
 
 @router.post("/preview", status_code=201)

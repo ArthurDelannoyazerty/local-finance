@@ -3,9 +3,14 @@ import { api } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 function failure(detail: unknown) {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-    new Response(JSON.stringify({ detail }), { status: 422 }),
-  ));
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ detail }), { status: 422 }),
+      ),
+  );
 }
 describe("API error messages", () => {
   it("renders field validation errors", async () => {

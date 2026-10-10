@@ -89,7 +89,10 @@ class Database:
         backup_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
         backup_path = backup_dir / f"finance-pre-v2-{timestamp}.db"
-        with closing(sqlite3.connect(self.path)) as source, closing(sqlite3.connect(backup_path)) as target:
+        with (
+            closing(sqlite3.connect(self.path)) as source,
+            closing(sqlite3.connect(backup_path)) as target,
+        ):
             source.backup(target)
 
     @staticmethod

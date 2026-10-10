@@ -21,7 +21,10 @@ export const initialProjection: ProjectionInput = {
 
 export function roundMoney(value: number): number {
   if (!Number.isFinite(value)) return value;
-  return Math.sign(value) * Math.round((Math.abs(value) + Number.EPSILON) * 100) / 100;
+  return (
+    (Math.sign(value) * Math.round((Math.abs(value) + Number.EPSILON) * 100)) /
+    100
+  );
 }
 
 /** All entry points (defaults, scenarios and edits) use the same precision. */
@@ -67,27 +70,53 @@ export function projectionError(value: ProjectionInput): string | null {
     [value.volatility, 0, 1],
     [value.simulations, 10, 5000],
   ];
-  if (limits.some(([number, min, max]) => !Number.isFinite(number) || number < min || number > max)) {
+  if (
+    limits.some(
+      ([number, min, max]) =>
+        !Number.isFinite(number) || number < min || number > max,
+    )
+  ) {
     return "Vérifiez les montants et les limites des hypothèses.";
   }
-  if (![value.current_age, value.retirement_age, value.years, value.simulations].every(Number.isInteger)) {
+  if (
+    ![
+      value.current_age,
+      value.retirement_age,
+      value.years,
+      value.simulations,
+    ].every(Number.isInteger)
+  ) {
     return "Les âges, l’horizon et le nombre de simulations doivent être entiers.";
   }
-  if (value.stop_working_age !== null && (
-    !Number.isInteger(value.stop_working_age) ||
-    value.stop_working_age < value.current_age ||
-    value.stop_working_age > value.current_age + value.years
-  )) {
+  if (
+    value.stop_working_age !== null &&
+    (!Number.isInteger(value.stop_working_age) ||
+      value.stop_working_age < value.current_age ||
+      value.stop_working_age > value.current_age + value.years)
+  ) {
     return "L’âge d’arrêt doit se situer dans l’horizon choisi.";
   }
-  if (value.life_events.some((event) => !event.name.trim() || event.name.length > 120 || !Number.isFinite(event.amount) || !Number.isFinite(event.year) || event.year <= 0 || event.year > value.years)) {
+  if (
+    value.life_events.some(
+      (event) =>
+        !event.name.trim() ||
+        event.name.length > 120 ||
+        !Number.isFinite(event.amount) ||
+        !Number.isFinite(event.year) ||
+        event.year <= 0 ||
+        event.year > value.years,
+    )
+  ) {
     return "Vérifiez le nom, l’année et le montant des événements.";
   }
   return null;
 }
 
 /** Only Monte Carlo waits briefly; deterministic projections request immediately. */
-export function waitForQuiet(signal: AbortSignal, milliseconds = 150): Promise<void> {
+export function waitForQuiet(
+  signal: AbortSignal,
+  milliseconds = 150,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
       reject(new DOMException("Aborted", "AbortError"));

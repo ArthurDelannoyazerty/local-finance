@@ -83,14 +83,16 @@ export default function Flows() {
         eyebrow="Quotidien"
         title="Flux"
         description="Suivez le chemin de l’argent entre revenus, dépenses, comptes et investissements."
-        actions={bounds.data && (
-          <MonthSelector
-            months={available}
-            selected={months}
-            today={bounds.data.today}
-            onChange={setSelection}
-          />
-        )}
+        actions={
+          bounds.data && (
+            <MonthSelector
+              months={available}
+              selected={months}
+              today={bounds.data.today}
+              onChange={setSelection}
+            />
+          )
+        }
       />
       {bounds.isLoading ? (
         <Loading />
@@ -98,7 +100,10 @@ export default function Flows() {
         <ErrorBlock error={bounds.error} />
       ) : months.length === 0 ? (
         <Panel>
-          <Empty title="Aucun mois sélectionné" description="Cochez les mois à afficher dans le sélecteur." />
+          <Empty
+            title="Aucun mois sélectionné"
+            description="Cochez les mois à afficher dans le sélecteur."
+          />
         </Panel>
       ) : query.isLoading ? (
         <Loading />
@@ -106,26 +111,66 @@ export default function Flows() {
         <ErrorBlock error={query.error} />
       ) : data ? (
         <div className="stack">
-          <Panel title="Revenus → dépenses" description="Une lecture consolidée des catégories sur les mois sélectionnés.">
+          <Panel
+            title="Revenus → dépenses"
+            description="Une lecture consolidée des catégories sur les mois sélectionnés."
+          >
             {data.cash_flow.links.length ? (
-              <Chart option={option(data.cash_flow, ["#67e8b6", "#72a5ff", "#ff8585", "#f5c66e"])} height={510} />
+              <Chart
+                option={option(data.cash_flow, [
+                  "#67e8b6",
+                  "#72a5ff",
+                  "#ff8585",
+                  "#f5c66e",
+                ])}
+                height={510}
+              />
             ) : (
-              <Empty title="Aucun flux quotidien" description="Cette sélection ne contient ni revenu ni dépense." />
+              <Empty
+                title="Aucun flux quotidien"
+                description="Cette sélection ne contient ni revenu ni dépense."
+              />
             )}
           </Panel>
           <div className="grid-2">
-            <Panel title="Entre vos comptes" description="Transferts internes, sans les confondre avec des dépenses.">
+            <Panel
+              title="Entre vos comptes"
+              description="Transferts internes, sans les confondre avec des dépenses."
+            >
               {data.transfers.links.length ? (
-                <Chart option={option(data.transfers, ["#72a5ff", "#5bd7e8", "#b99cff"])} height={350} />
+                <Chart
+                  option={option(data.transfers, [
+                    "#72a5ff",
+                    "#5bd7e8",
+                    "#b99cff",
+                  ])}
+                  height={350}
+                />
               ) : (
-                <Empty title="Aucun transfert" description="Aucun transfert sur cette période." />
+                <Empty
+                  title="Aucun transfert"
+                  description="Aucun transfert sur cette période."
+                />
               )}
             </Panel>
-            <Panel title="Vers vos actifs" description="Achats et ventes reliant comptes et tickers.">
+            <Panel
+              title="Vers vos actifs"
+              description="Achats et ventes reliant comptes et tickers."
+            >
               {data.investments.links.length ? (
-                <Chart option={option(data.investments, ["#f5c66e", "#67e8b6", "#ff8f8f"])} height={350} />
+                <Chart
+                  option={option(data.investments, [
+                    "#f5c66e",
+                    "#67e8b6",
+                    "#ff8f8f",
+                  ])}
+                  height={350}
+                />
               ) : (
-                <Empty title="Aucune opération boursière" description="Aucun achat ou vente sur cette période." />
+                <Empty
+                  title="Aucune opération boursière"
+                  description="Aucun achat ou vente sur cette période."
+                />
               )}
             </Panel>
           </div>

@@ -38,7 +38,13 @@ def csv_text(rows, delimiter=";", headers=HEADERS):
 
 
 def request(rows, **kwargs):
-    options = dict(source="bourse-direct", account="PEA", csv_text=csv_text(rows), date_format="dmy", mappings={"TEST ETF": "TEST.PA"})
+    options = dict(
+        source="bourse-direct",
+        account="PEA",
+        csv_text=csv_text(rows),
+        date_format="dmy",
+        mappings={"TEST ETF": "TEST.PA"},
+    )
     options.update(kwargs)
     return BrokerImportRequest(**options)
 
@@ -74,12 +80,23 @@ def test_delimiters_and_fee_precision(delimiter):
     assert result.rows[1]["quantity"] == "5"
 
 
-@pytest.mark.parametrize(("raw", "expected"), [("1 234,56 €", "1234.56"), ("1.234,56", "1234.56"), ("1,234.56", "1234.56"), ("0,0001", "0.0001"), ("-5", "-5")])
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("1 234,56 €", "1234.56"),
+        ("1.234,56", "1234.56"),
+        ("1,234.56", "1234.56"),
+        ("0,0001", "0.0001"),
+        ("-5", "-5"),
+    ],
+)
 def test_numbers(raw, expected):
     assert parse_number(raw) == Decimal(expected)
 
 
-@pytest.mark.parametrize("raw", ["NaN", "Infinity", "1e3", "12.34,56", "2.123456789", "999999999999999"])
+@pytest.mark.parametrize(
+    "raw", ["NaN", "Infinity", "1e3", "12.34,56", "2.123456789", "999999999999999"]
+)
 def test_invalid_numbers(raw):
     with pytest.raises(ValueError):
         parse_number(raw)
@@ -156,7 +173,9 @@ def test_future_trades_do_not_distort_today_summary(broker_db):
 
 def test_existing_android_transfer_blocks_external_deposit(broker_db):
     with broker_db.transaction() as connection:
-        connection.execute("INSERT INTO transfers(id,date,source_account,target_account,amount) VALUES ('t','2020-02-15','CTO','PEA',1000)")
+        connection.execute(
+            "INSERT INTO transfers(id,date,source_account,target_account,amount) VALUES ('t','2020-02-15','CTO','PEA',1000)"
+        )
     preview = create_broker_preview(request([DEPOSIT], deposit_policy="external"), db=broker_db)
     assert preview["errors"]
     with pytest.raises(ValueError):
@@ -164,7 +183,9 @@ def test_existing_android_transfer_blocks_external_deposit(broker_db):
 
 
 def test_unknown_operation_blocks_entire_batch(broker_db):
-    preview = create_broker_preview(request([BUY, ["2020-02-19", "DIVIDENDE INCONNU", "5", "", "", ""]]), db=broker_db)
+    preview = create_broker_preview(
+        request([BUY, ["2020-02-19", "DIVIDENDE INCONNU", "5", "", "", ""]]), db=broker_db
+    )
     assert preview["errors"]
     with pytest.raises(ValueError):
         apply_broker_preview(preview["id"], db=broker_db)
@@ -175,7 +196,9 @@ def test_overselling_and_wrong_opening_date_block_import(broker_db):
     preview = create_broker_preview(request([SELL]), db=broker_db)
     assert preview["errors"]
     with broker_db.transaction() as connection:
-        connection.execute("UPDATE accounts SET opening_balance_date = '2021-01-01' WHERE name='PEA'")
+        connection.execute(
+            "UPDATE accounts SET opening_balance_date = '2021-01-01' WHERE name='PEA'"
+        )
     preview = create_broker_preview(request([BUY]), db=broker_db)
     assert any("solde initial" in error for error in preview["errors"])
 
@@ -210,8 +233,10 @@ def test_stale_preview_and_idempotent_apply(broker_db):
 
 def test_concurrent_same_batch_applies_once(broker_db):
     preview = create_broker_preview(request([BUY]), db=broker_db)
+
     def apply_again(_):
         return apply_broker_preview(preview["id"], db=Database(broker_db.path))
+
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(apply_again, range(2)))
     assert sum(not result["already_applied"] for result in results) == 1
@@ -221,7 +246,9 @@ def test_concurrent_same_batch_applies_once(broker_db):
 def test_late_failure_rolls_back_everything(broker_db):
     preview = create_broker_preview(request([BUY, REFUND]), db=broker_db)
     with broker_db.transaction() as connection:
-        connection.execute("CREATE TRIGGER fail_receipt BEFORE INSERT ON broker_receipts BEGIN SELECT RAISE(ABORT,'test rollback'); END")
+        connection.execute(
+            "CREATE TRIGGER fail_receipt BEFORE INSERT ON broker_receipts BEGIN SELECT RAISE(ABORT,'test rollback'); END"
+        )
     with pytest.raises(Exception, match="test rollback"):
         apply_broker_preview(preview["id"], db=broker_db)
     for table in ("investments", "broker_cash_movements", "broker_receipts", "broker_mappings"):
@@ -243,7 +270,9 @@ def test_receipts_survive_manual_delete_and_edit(broker_db):
 
 def test_exact_manual_trade_is_linked_not_duplicated(broker_db):
     with broker_db.transaction() as connection:
-        connection.execute("INSERT INTO investments(id,date,ticker,name,action,quantity,unit_price,fees,account) VALUES ('manual','2020-02-16','TEST.PA','Manual','BUY',5,41.017,0.995,'PEA')")
+        connection.execute(
+            "INSERT INTO investments(id,date,ticker,name,action,quantity,unit_price,fees,account) VALUES ('manual','2020-02-16','TEST.PA','Manual','BUY',5,41.017,0.995,'PEA')"
+        )
     preview = apply_rows(broker_db, [BUY, BUY])
     assert preview["summary"]["link"] == 1
     assert preview["summary"]["add"] == 1
@@ -271,8 +300,14 @@ def test_cancel_does_not_delete_applied_history(broker_db):
 
 
 def test_routes_and_source_menu(broker_db, monkeypatch):
-    monkeypatch.setattr(broker_api, "create_broker_preview", lambda payload: create_broker_preview(payload, db=broker_db))
-    monkeypatch.setattr(broker_api, "apply_broker_preview", lambda value: apply_broker_preview(value, db=broker_db))
+    monkeypatch.setattr(
+        broker_api,
+        "create_broker_preview",
+        lambda payload: create_broker_preview(payload, db=broker_db),
+    )
+    monkeypatch.setattr(
+        broker_api, "apply_broker_preview", lambda value: apply_broker_preview(value, db=broker_db)
+    )
     app = FastAPI()
     app.include_router(broker_api.router)
     client = TestClient(app)
@@ -289,15 +324,26 @@ def test_routes_and_source_menu(broker_db, monkeypatch):
 def test_cash_dates_are_in_bounds_and_protect_account_opening(broker_db):
     from local_finance.ledger import get_date_bounds, update_account
     from local_finance.schemas import AccountUpdate
+
     apply_rows(broker_db, [REFUND])
     assert get_date_bounds(db=broker_db)["min"] == "2020-02-18"
     with pytest.raises(ValueError):
-        update_account("PEA", AccountUpdate(initial_balance=0, opening_balance_date=date(2021, 1, 1), is_visible=True, revision=1), db=broker_db)
+        update_account(
+            "PEA",
+            AccountUpdate(
+                initial_balance=0,
+                opening_balance_date=date(2021, 1, 1),
+                is_visible=True,
+                revision=1,
+            ),
+            db=broker_db,
+        )
 
 
 def test_moving_purchase_does_not_orphan_sale(broker_db):
     from local_finance.ledger import InventoryError, update_trade
     from local_finance.schemas import TradeUpdate
+
     apply_rows(broker_db, [BUY, SELL])
     with broker_db.read() as connection:
         old = dict(connection.execute("SELECT * FROM investments WHERE action='BUY'").fetchone())
@@ -305,23 +351,38 @@ def test_moving_purchase_does_not_orphan_sale(broker_db):
         with pytest.raises(InventoryError):
             update_trade(old["id"], TradeUpdate(**{**old, **change}), db=broker_db)
     with broker_db.read() as connection:
-        current = dict(connection.execute("SELECT * FROM investments WHERE id=?", (old["id"],)).fetchone())
+        current = dict(
+            connection.execute("SELECT * FROM investments WHERE id=?", (old["id"],)).fetchone()
+        )
         assert current == old
 
 
 def test_manual_trades_cannot_precede_account_opening(broker_db):
     from local_finance.ledger import create_trade
     from local_finance.schemas import TradeInput
+
     with broker_db.transaction() as connection:
         connection.execute("UPDATE accounts SET opening_balance_date='2021-01-01' WHERE name='PEA'")
     with pytest.raises(ValueError, match="opening balance"):
-        create_trade(TradeInput(date=date(2020, 1, 1), ticker="TEST.PA", name="Test", action="BUY", quantity=1, unit_price=10, account="PEA"), db=broker_db)
+        create_trade(
+            TradeInput(
+                date=date(2020, 1, 1),
+                ticker="TEST.PA",
+                name="Test",
+                action="BUY",
+                quantity=1,
+                unit_price=10,
+                account="PEA",
+            ),
+            db=broker_db,
+        )
 
 
 @pytest.mark.parametrize("balance", [float("inf"), float("-inf"), float("nan")])
 def test_financial_models_reject_nonfinite(balance):
     from pydantic import ValidationError
     from local_finance.schemas import AccountCreate
+
     with pytest.raises(ValidationError):
         AccountCreate(name="Test", initial_balance=balance)
 
@@ -329,6 +390,7 @@ def test_financial_models_reject_nonfinite(balance):
 def test_financial_models_reject_blank_after_trim():
     from pydantic import ValidationError
     from local_finance.schemas import AccountCreate
+
     with pytest.raises(ValidationError):
         AccountCreate(name="   ")
 
@@ -336,10 +398,13 @@ def test_financial_models_reject_blank_after_trim():
 def test_formula_safe_exports_preserve_numeric_cells(broker_db):
     from openpyxl import load_workbook
     from local_finance.ledger import export_trades
+
     apply_rows(broker_db, [BUY])
     with broker_db.transaction() as connection:
         connection.execute("UPDATE investments SET name='=1+1', comment='@SUM(A1)'")
-    rows = list(csv.reader(io.StringIO(export_trades(file_format="csv", db=broker_db).decode("utf-8-sig"))))
+    rows = list(
+        csv.reader(io.StringIO(export_trades(file_format="csv", db=broker_db).decode("utf-8-sig")))
+    )
     assert rows[1][3] == "'=1+1"
     assert rows[1][-1] == "'@SUM(A1)"
     workbook = load_workbook(io.BytesIO(export_trades(file_format="xlsx", db=broker_db)))
@@ -351,14 +416,20 @@ def test_market_refresh_updates_last_cached_day(broker_db, monkeypatch):
     import pandas as pd
     from types import SimpleNamespace
     from local_finance.portfolio import refresh_market_data
+
     apply_rows(broker_db, [BUY])
     with broker_db.transaction() as connection:
-        connection.execute("INSERT INTO market_prices(date,ticker,price) VALUES ('2020-02-17','TEST.PA',40)")
+        connection.execute(
+            "INSERT INTO market_prices(date,ticker,price) VALUES ('2020-02-17','TEST.PA',40)"
+        )
+
     class Ticker:
         fast_info = SimpleNamespace(currency="EUR")
+
         def history(self, **kwargs):
             assert kwargs["start"] == date(2020, 2, 17)
             return pd.DataFrame({"Close": [45]}, index=pd.to_datetime(["2020-02-17"]))
+
     monkeypatch.setattr("local_finance.portfolio.yf.Ticker", lambda _: Ticker())
     assert not refresh_market_data(db=broker_db)["errors"]
     with broker_db.read() as connection:
@@ -373,7 +444,12 @@ def test_migration_is_additive_and_repeatable(tmp_path):
     db.initialize()
     db.initialize()
     with db.read() as connection:
-        assert connection.execute("SELECT initial_balance FROM accounts WHERE name='Legacy'").fetchone()[0] == 125
+        assert (
+            connection.execute(
+                "SELECT initial_balance FROM accounts WHERE name='Legacy'"
+            ).fetchone()[0]
+            == 125
+        )
         assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 3
         assert not connection.execute("PRAGMA foreign_key_check").fetchall()
     assert count(db, "broker_receipts") == 0
@@ -381,18 +457,22 @@ def test_migration_is_additive_and_repeatable(tmp_path):
 
 def test_row_limit_is_enforced(monkeypatch):
     import local_finance.broker_sources as sources
+
     monkeypatch.setattr(sources, "MAX_ROWS", 2)
     assert sources.parse_bourse_direct(csv_text([BUY, BUY, BUY]), "dmy").errors
 
 
-@pytest.mark.parametrize(("label", "ticker"), [
-    ("BNPETF STOXX 600", "ETZ.PA"),
-    ("AM.SP 500 ETF ACC", "PSP5.PA"),
-    ("AMUNDI CAC40 U.ACC", "CACC.PA"),
-    ("AM.M.WOR.ETF EUR C", "CW8.PA"),
-    ("AM.PEA EM.ES.T.ACC", "PAEEM.PA"),
-    (r"IS.MS.W\.S.P.UC.EUR", "WPEA.PA"),
-])
+@pytest.mark.parametrize(
+    ("label", "ticker"),
+    [
+        ("BNPETF STOXX 600", "ETZ.PA"),
+        ("AM.SP 500 ETF ACC", "PSP5.PA"),
+        ("AMUNDI CAC40 U.ACC", "CACC.PA"),
+        ("AM.M.WOR.ETF EUR C", "CW8.PA"),
+        ("AM.PEA EM.ES.T.ACC", "PAEEM.PA"),
+        (r"IS.MS.W\.S.P.UC.EUR", "WPEA.PA"),
+    ],
+)
 def test_catalog_matches_sample_labels_but_requires_confirmation(label, ticker):
     from local_finance.instrument_catalog import instrument_suggestions
 

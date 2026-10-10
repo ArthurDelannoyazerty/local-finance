@@ -504,9 +504,7 @@ def validate_event_date(connection: sqlite3.Connection, account: str, day: str) 
         raise ValueError("An operation cannot precede the account opening balance date")
 
 
-def validate_position_history(
-    connection: sqlite3.Connection, account: str, ticker: str
-) -> None:
+def validate_position_history(connection: sqlite3.Connection, account: str, ticker: str) -> None:
     quantity = 0.0
     for row in connection.execute(
         "SELECT date, action, quantity FROM investments "
@@ -515,7 +513,9 @@ def validate_position_history(
     ):
         quantity += float(row["quantity"]) * (1 if row["action"] == "BUY" else -1)
         if quantity < -1e-9:
-            raise InventoryError(f"This change would make {ticker} holdings negative on {row['date']}")
+            raise InventoryError(
+                f"This change would make {ticker} holdings negative on {row['date']}"
+            )
 
 
 def _assert_inventory(
