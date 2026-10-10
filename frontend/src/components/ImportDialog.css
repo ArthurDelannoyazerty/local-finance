@@ -1,0 +1,135 @@
+.broker-dialog {
+  width: min(1120px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.broker-dialog::backdrop {
+  background: rgb(0 0 0 / 70%);
+}
+.broker-dialog .modal-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.broker-help {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.broker-fields {
+  min-width: 0;
+  display: grid;
+  gap: 16px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.broker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.broker-drop {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  border: 1px dashed var(--muted);
+  border-radius: 12px;
+  text-align: center;
+  background: var(--surface-soft);
+}
+.broker-text {
+  min-height: 150px;
+  width: 100%;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+.broker-mappings {
+  display: grid;
+  gap: 12px;
+}
+.broker-preview {
+  margin-top: 24px;
+}
+.broker-preview .callout {
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.broker-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.broker-table {
+  width: 100%;
+  min-width: 840px;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+}
+.broker-table th,
+.broker-table td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.broker-table th {
+  background: var(--surface-raised);
+}
+.broker-table td:nth-child(n + 3):nth-child(-n + 6) {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.broker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.broker-actions > :last-child {
+  margin-left: auto;
+}
+.broker-import-button {
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .broker-dialog {
+    width: calc(100vw - 16px);
+    padding: 16px;
+  }
+  .broker-grid {
+    grid-template-columns: 1fr;
+  }
+  .topbar {
+    flex-wrap: wrap;
+  }
+}
+
+.broker-candidate {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.broker-candidate-info {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.broker-candidate-info small {
+  color: var(--muted);
+}
+.broker-candidate-info a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.broker-candidate-info button {
+  justify-self: start;
+}

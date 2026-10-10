@@ -9,11 +9,13 @@ import {
   PieChart,
   Search,
   TrendingUp,
+  Upload,
   WalletCards,
   X,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import DateRangePicker from "./DateRangePicker";
+import ImportDialog from "./ImportDialog";
 import type { DateRangeValue } from "../types";
 
 const groups = [
@@ -53,6 +55,7 @@ export default function Layout({
   onRange: (range: DateRangeValue) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const location = useLocation();
   return (
     <div className="app-shell">
@@ -123,9 +126,19 @@ export default function Layout({
           {rangeRoutes.has(location.pathname) && (
             <DateRangePicker value={range} min={minDate} onChange={onRange} />
           )}
+          <button
+            type="button"
+            className="button button-primary broker-import-button"
+            aria-haspopup="dialog"
+            onClick={() => setImportOpen(true)}
+          >
+            <Upload size={17} />
+            Importer
+          </button>
         </div>
         <main className="content">{children}</main>
       </div>
+      {importOpen && <ImportDialog onClose={() => setImportOpen(false)} />}
     </div>
   );
 }

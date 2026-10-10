@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { format, subMonths } from "date-fns";
-import { Plus, X } from "lucide-react";
 import { api, searchParams } from "../api";
 import Chart from "../components/Chart";
+import MonthSelector from "../components/MonthSelector";
+import { availableMonths } from "../months";
 import {
   Empty,
   ErrorBlock,
@@ -17,6 +17,7 @@ type Sankey = {
   links: { source: string; target: string; value: number }[];
 };
 type Response = { cash_flow: Sankey; transfers: Sankey; investments: Sankey };
+type Bounds = { min: string; max: string; today: string };
 
 function option(data: Sankey, colors: string[]) {
   return {
@@ -50,26 +51,32 @@ function option(data: Sankey, colors: string[]) {
 }
 
 export default function Flows() {
-  const defaults = useMemo(
-    () =>
-      [0, 1, 2].map((offset) =>
-        format(subMonths(new Date(), offset), "yyyy-MM"),
-      ),
-    [],
-  );
-  const [months, setMonths] = useState(defaults);
-  const [newMonth, setNewMonth] = useState(format(new Date(), "yyyy-MM"));
+  const bounds = useQuery({
+    queryKey: ["date-bounds"],
+    queryFn: ({ signal }) => api<Bounds>("/api/meta/date-bounds", { signal }),
+  });
+  const available = useMemo(() => {
+    if (!bounds.data) return [];
+    const { min, max, today } = bounds.data;
+    return availableMonths(min, max > today ? max : today);
+  }, [bounds.data]);
+  // null means the initial preset; [] means deliberately selecting no months.
+  const [selection, setSelection] = useState<string[] | null>(null);
+  const months = useMemo(() => {
+    if (selection !== null) {
+      return available.filter((month) => selection.includes(month));
+    }
+    return available
+      .filter((month) => month <= (bounds.data?.today.slice(0, 7) ?? ""))
+      .slice(-3);
+  }, [available, selection, bounds.data]);
   const query = useQuery({
     queryKey: ["flows", months],
-    queryFn: () =>
-      api<Response>(`/api/flows${searchParams({ month: months })}`),
+    queryFn: ({ signal }) =>
+      api<Response>(`/api/flows${searchParams({ month: months })}`, { signal }),
+    enabled: Boolean(bounds.data) && months.length > 0,
   });
-  const addMonth = () =>
-    setMonths((current) =>
-      Array.from(new Set([...current, newMonth]))
-        .sort()
-        .reverse(),
-    );
+  const data = query.data;
   return (
     <>
       <PageHeader
@@ -77,56 +84,40 @@ export default function Flows() {
         title="Flux"
         description="Suivez le chemin de l’argent entre revenus, dépenses, comptes et investissements."
         actions={
-          <div className="month-picker">
-            {months.map((month) => (
-              <span className="month-chip" key={month}>
-                {month}
-                <button
-                  onClick={() =>
-                    setMonths((current) =>
-                      current.filter((value) => value !== month),
-                    )
-                  }
-                  aria-label={`Retirer ${month}`}
-                >
-                  <X size={12} />
-                </button>
-              </span>
-            ))}
-            <input
-              className="input"
-              type="month"
-              value={newMonth}
-              onChange={(event) => setNewMonth(event.target.value)}
-              style={{ width: 140 }}
+          bounds.data && (
+            <MonthSelector
+              months={available}
+              selected={months}
+              today={bounds.data.today}
+              onChange={setSelection}
             />
-            <button className="button button-secondary" onClick={addMonth}>
-              <Plus size={15} />
-              Ajouter
-            </button>
-          </div>
+          )
         }
       />
-      {query.isLoading ? (
+      {bounds.isLoading ? (
         <Loading />
-      ) : query.error ? (
-        <ErrorBlock error={query.error} />
+      ) : bounds.error ? (
+        <ErrorBlock error={bounds.error} />
       ) : months.length === 0 ? (
         <Panel>
           <Empty
             title="Aucun mois sélectionné"
-            description="Ajoutez au moins un mois pour reconstruire les flux."
+            description="Cochez les mois à afficher dans le sélecteur."
           />
         </Panel>
-      ) : (
+      ) : query.isLoading ? (
+        <Loading />
+      ) : query.error ? (
+        <ErrorBlock error={query.error} />
+      ) : data ? (
         <div className="stack">
           <Panel
             title="Revenus → dépenses"
             description="Une lecture consolidée des catégories sur les mois sélectionnés."
           >
-            {query.data!.cash_flow.links.length ? (
+            {data.cash_flow.links.length ? (
               <Chart
-                option={option(query.data!.cash_flow, [
+                option={option(data.cash_flow, [
                   "#67e8b6",
                   "#72a5ff",
                   "#ff8585",
@@ -146,9 +137,9 @@ export default function Flows() {
               title="Entre vos comptes"
               description="Transferts internes, sans les confondre avec des dépenses."
             >
-              {query.data!.transfers.links.length ? (
+              {data.transfers.links.length ? (
                 <Chart
-                  option={option(query.data!.transfers, [
+                  option={option(data.transfers, [
                     "#72a5ff",
                     "#5bd7e8",
                     "#b99cff",
@@ -166,9 +157,9 @@ export default function Flows() {
               title="Vers vos actifs"
               description="Achats et ventes reliant comptes et tickers."
             >
-              {query.data!.investments.links.length ? (
+              {data.investments.links.length ? (
                 <Chart
-                  option={option(query.data!.investments, [
+                  option={option(data.investments, [
                     "#f5c66e",
                     "#67e8b6",
                     "#ff8f8f",
@@ -184,7 +175,7 @@ export default function Flows() {
             </Panel>
           </div>
         </div>
-      )}
+      ) : null}
     </>
   );
 }
