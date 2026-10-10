@@ -55,7 +55,7 @@ def parse_number(value: str) -> Decimal:
         number = Decimal(raw)
     except InvalidOperation as exc:
         raise ValueError(f"Nombre invalide : {value}") from exc
-    if not number.is_finite() or abs(number) > Decimal("1000000000000"):
+    if not number.is_finite() or abs(number) > Decimal(1000000000000):
         raise ValueError("Nombre hors limites")
     return number
 
@@ -69,11 +69,9 @@ def parse_date(raw: str, date_format: DateFormat) -> str:
     if not re.fullmatch(r"\d{1,2}/\d{1,2}/\d{4}", raw):
         raise ValueError(f"Date non reconnue : {raw}")
     try:
-        return (
-            datetime.strptime(raw, "%d/%m/%Y" if date_format == "dmy" else "%m/%d/%Y")
-            .date()
-            .isoformat()
-        )
+        first, second, year = (int(part) for part in raw.split("/"))
+        day, month = (first, second) if date_format == "dmy" else (second, first)
+        return date(year, month, day).isoformat()
     except ValueError as exc:
         raise ValueError(f"Date {raw} incompatible avec le format choisi") from exc
 
