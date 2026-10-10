@@ -143,6 +143,7 @@ def get_date_bounds(*, db: Database = database) -> dict[str, str]:
                 SELECT date AS value FROM transactions
                 UNION ALL SELECT date FROM transfers
                 UNION ALL SELECT date FROM investments
+                UNION ALL SELECT date FROM broker_cash_movements
             )
             """
         ).fetchone()
@@ -331,11 +332,12 @@ def _validate_opening_date(
         SELECT MIN(event_date) FROM (
             SELECT date AS event_date FROM transactions WHERE account = ?
             UNION ALL SELECT date FROM investments WHERE account = ?
+            UNION ALL SELECT date FROM broker_cash_movements WHERE account = ?
             UNION ALL SELECT date FROM transfers
                 WHERE source_account = ? OR target_account = ?
         )
         """,
-        (account, account, account, account),
+        (account, account, account, account, account),
     ).fetchone()[0]
     if first_event and opening_date.isoformat() > str(first_event):
         raise ValueError(
@@ -492,6 +494,30 @@ def list_trades(
     }
 
 
+def validate_event_date(connection: sqlite3.Connection, account: str, day: str) -> None:
+    row = connection.execute(
+        "SELECT opening_balance_date FROM accounts WHERE name = ?", (account,)
+    ).fetchone()
+    if row is None:
+        raise ValueError("The selected account does not exist")
+    if row["opening_balance_date"] and day < row["opening_balance_date"]:
+        raise ValueError("An operation cannot precede the account opening balance date")
+
+
+def validate_position_history(
+    connection: sqlite3.Connection, account: str, ticker: str
+) -> None:
+    quantity = 0.0
+    for row in connection.execute(
+        "SELECT date, action, quantity FROM investments "
+        "WHERE account = ? AND ticker = ? ORDER BY date, action, id",
+        (account, ticker),
+    ):
+        quantity += float(row["quantity"]) * (1 if row["action"] == "BUY" else -1)
+        if quantity < -1e-9:
+            raise InventoryError(f"This change would make {ticker} holdings negative on {row['date']}")
+
+
 def _assert_inventory(
     connection: sqlite3.Connection,
     payload: TradeInput,
@@ -536,11 +562,7 @@ def _assert_inventory(
 def create_trade(payload: TradeInput, *, db: Database = database) -> dict[str, Any]:
     trade_id, now = str(uuid.uuid4()), utc_now()
     with db.transaction(immediate=True) as connection:
-        account_exists = connection.execute(
-            "SELECT 1 FROM accounts WHERE name = ?", (payload.account,)
-        ).fetchone()
-        if not account_exists:
-            raise ValueError("The selected account does not exist")
+        validate_event_date(connection, payload.account, payload.date.isoformat())
         _assert_inventory(connection, payload)
         connection.execute(
             """
@@ -583,17 +605,13 @@ def update_trade(
     now = utc_now()
     with db.transaction(immediate=True) as connection:
         current = connection.execute(
-            "SELECT revision FROM investments WHERE id = ?", (trade_id,)
+            "SELECT revision, account, ticker FROM investments WHERE id = ?", (trade_id,)
         ).fetchone()
         if current is None:
             raise KeyError("Trade not found")
         if current["revision"] != payload.revision:
             raise RevisionConflict("The trade changed in another browser tab")
-        account_exists = connection.execute(
-            "SELECT 1 FROM accounts WHERE name = ?", (payload.account,)
-        ).fetchone()
-        if not account_exists:
-            raise ValueError("The selected account does not exist")
+        validate_event_date(connection, payload.account, payload.date.isoformat())
         _assert_inventory(connection, payload, exclude_id=trade_id)
         cursor = connection.execute(
             """
@@ -621,6 +639,8 @@ def update_trade(
         )
         if cursor.rowcount != 1:
             raise RevisionConflict("The trade changed in another browser tab")
+        if (current["account"], current["ticker"]) != (payload.account, payload.ticker):
+            validate_position_history(connection, current["account"], current["ticker"])
     return {
         "id": trade_id,
         **payload.model_dump(mode="json", exclude={"revision"}),
@@ -643,20 +663,7 @@ def delete_trade(
         if row is None:
             raise RevisionConflict("The trade changed or was already deleted")
         connection.execute("DELETE FROM investments WHERE id = ?", (trade_id,))
-        remaining = connection.execute(
-            """
-            SELECT date, action, quantity FROM investments
-            WHERE account = ? AND ticker = ? ORDER BY date, action
-            """,
-            (row["account"], row["ticker"]),
-        ).fetchall()
-        quantity = 0.0
-        for item in remaining:
-            quantity += (
-                float(item["quantity"]) if item["action"] == "BUY" else -float(item["quantity"])
-            )
-            if quantity < -1e-9:
-                raise InventoryError("Deleting this buy would leave a later sale without inventory")
+        validate_position_history(connection, row["account"], row["ticker"])
 
 
 def _spreadsheet_bytes(headers: list[str], rows: list[list[Any]]) -> bytes:
@@ -666,6 +673,9 @@ def _spreadsheet_bytes(headers: list[str], rows: list[list[Any]]) -> bytes:
     worksheet.append(headers)
     for row in rows:
         worksheet.append(row)
+        for cell in worksheet[worksheet.max_row]:
+            if isinstance(cell.value, str):
+                cell.data_type = "s"
     worksheet.freeze_panes = "A2"
     worksheet.auto_filter.ref = worksheet.dimensions
     for column in worksheet.columns:
@@ -717,5 +727,13 @@ def export_trades(
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(headers)
-    writer.writerows(rows)
+    writer.writerows(
+        [
+            "'" + cell
+            if isinstance(cell, str) and cell.lstrip().startswith(("=", "+", "-", "@"))
+            else cell
+            for cell in row
+        ]
+        for row in rows
+    )
     return output.getvalue().encode("utf-8-sig")
