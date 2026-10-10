@@ -464,9 +464,9 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
           {exportError}
         </div>
       )}
+      <div style={{ marginBottom: 24 }}>
       <Panel
         title="Évolution du patrimoine"
-        description="Les achats et ventes déplacent le cash vers les actifs sans créer de faux revenu ou dépense."
         action={
           <div className="segmented">
             <button
@@ -497,6 +497,7 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
           />
         )}
       </Panel>
+      </div>
       <Panel
         className="panel-flush"
         title="Historique boursier"
