@@ -45,6 +45,14 @@ def _event_data(connection: sqlite3.Connection, end: date) -> dict[str, Any]:
         """,
         [*names, end_text],
     ).fetchall()
+    # Cash events affect wealth, not the Android-owned budget transaction ledger.
+    transactions.extend(
+        connection.execute(
+            f"SELECT date, account, amount, 'INCOME' AS type FROM broker_cash_movements "
+            f"WHERE account IN ({placeholders}) AND date <= ? ORDER BY date, id",
+            [*names, end_text],
+        ).fetchall()
+    )
     transfers = connection.execute(
         f"""
         SELECT date, source_account, target_account, amount FROM transfers
@@ -311,7 +319,8 @@ def portfolio_snapshot(
 
 
 def portfolio_summary(*, db: Database = database) -> dict[str, Any]:
-    snapshot = portfolio_snapshot(datetime.now(UTC).date(), db=db)
+    today = datetime.now(UTC).date()
+    snapshot = portfolio_snapshot(today, db=db)
     current_value = sum(row["value"] for row in snapshot if row["type"] == "INVESTMENT")
     with db.read() as connection:
         row = connection.execute(
@@ -322,12 +331,20 @@ def portfolio_summary(*, db: Database = database) -> dict[str, Any]:
                 MAX(updated_at)
             FROM investments
             WHERE account IN (SELECT name FROM accounts WHERE is_visible = 1)
-            """
+              AND date <= ?
+            """,
+            (today.isoformat(),),
         ).fetchone()
+        refunds = connection.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM broker_cash_movements "
+            "WHERE kind = 'FEE_REFUND' AND date <= ? "
+            "AND account IN (SELECT name FROM accounts WHERE is_visible = 1)",
+            (today.isoformat(),),
+        ).fetchone()[0]
         market = connection.execute(
             "SELECT MAX(fetched_at), MAX(date) FROM market_prices"
         ).fetchone()
-    net_invested = float(row[0]) - float(row[1])
+    net_invested = float(row[0]) - float(row[1]) - float(refunds)
     pnl = current_value - net_invested
     return {
         "net_invested": net_invested,
@@ -428,7 +445,7 @@ def refresh_market_data(*, db: Database = database) -> dict[str, Any]:
         result = {"updated": {}, "errors": {}}
         for ticker in tickers:
             start = (
-                date.fromisoformat(latest[ticker]) + timedelta(days=1)
+                date.fromisoformat(latest[ticker])
                 if latest.get(ticker)
                 else date.fromisoformat(first_trades[ticker])
             )

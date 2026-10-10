@@ -4,11 +4,12 @@ import json
 import sqlite3
 import threading
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .broker_schema import migrate_brokers
 from .settings import settings
 
 
@@ -67,11 +68,12 @@ class Database:
 
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as connection:
+        with self.read() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
         self._backup_before_first_migration()
         with self.transaction(immediate=True) as connection:
             self._apply_schema(connection)
+            migrate_brokers(connection)
 
     def _backup_before_first_migration(self) -> None:
         if not self.path.exists() or self.path.stat().st_size == 0:
@@ -87,7 +89,7 @@ class Database:
         backup_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
         backup_path = backup_dir / f"finance-pre-v2-{timestamp}.db"
-        with sqlite3.connect(self.path) as source, sqlite3.connect(backup_path) as target:
+        with closing(sqlite3.connect(self.path)) as source, closing(sqlite3.connect(backup_path)) as target:
             source.backup(target)
 
     @staticmethod
@@ -281,8 +283,8 @@ class Database:
         target_path = backup_dir / f"finance-{safe_label}-{timestamp}.db"
         with (
             self._write_lock,
-            sqlite3.connect(self.path) as source,
-            sqlite3.connect(target_path) as target,
+            closing(sqlite3.connect(self.path)) as source,
+            closing(sqlite3.connect(target_path)) as target,
         ):
             source.backup(target)
         return target_path

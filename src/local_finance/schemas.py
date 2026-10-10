@@ -3,13 +3,17 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 TransactionType = Literal["INCOME", "EXPENSE"]
 TradeAction = Literal["BUY", "SELL"]
 
 
-class DateRange(BaseModel):
+class FinanceModel(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, allow_inf_nan=False)
+
+
+class DateRange(FinanceModel):
     start: date
     end: date
 
@@ -20,7 +24,7 @@ class DateRange(BaseModel):
         return self
 
 
-class AccountCreate(BaseModel):
+class AccountCreate(FinanceModel):
     name: str = Field(min_length=1, max_length=120)
     initial_balance: float = 0
     opening_balance_date: date | None = None
@@ -32,14 +36,14 @@ class AccountCreate(BaseModel):
         return value.strip()
 
 
-class AccountUpdate(BaseModel):
+class AccountUpdate(FinanceModel):
     initial_balance: float
     opening_balance_date: date | None = None
     is_visible: bool
     revision: int = Field(ge=1)
 
 
-class TradeInput(BaseModel):
+class TradeInput(FinanceModel):
     date: date
     ticker: str = Field(min_length=1, max_length=32)
     name: str = Field(min_length=1, max_length=160)
@@ -66,17 +70,17 @@ class TradeUpdate(TradeInput):
     revision: int = Field(ge=1)
 
 
-class ImportApplyRequest(BaseModel):
+class ImportApplyRequest(FinanceModel):
     allow_deletions: bool = False
 
 
-class LifeEvent(BaseModel):
+class LifeEvent(FinanceModel):
     name: str = Field(min_length=1, max_length=120)
     year: float = Field(gt=0)
     amount: float
 
 
-class ProjectionRequest(BaseModel):
+class ProjectionRequest(FinanceModel):
     current_age: int = Field(ge=18, le=90)
     retirement_age: int = Field(ge=18, le=100)
     start_capital: float = Field(ge=0)
@@ -107,6 +111,6 @@ class ProjectionRequest(BaseModel):
         return self
 
 
-class ScenarioInput(BaseModel):
+class ScenarioInput(FinanceModel):
     name: str = Field(min_length=1, max_length=120)
     parameters: ProjectionRequest
