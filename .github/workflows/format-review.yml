@@ -1,0 +1,57 @@
+name: Format and validate review branch
+on:
+  push:
+    branches: [feat/broker-csv-import-20261010]
+    paths: [.github/workflows/format-review.yml]
+permissions:
+  contents: read
+jobs:
+  review:
+    if: github.repository == 'ArthurDelannoyazerty/local-finance' && github.ref == 'refs/heads/feat/broker-csv-import-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out requested revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          python-version: '3.13'
+      - name: Install Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+      - name: Install locked dependencies
+        run: |
+          uv sync --frozen --dev
+          npm ci --prefix frontend
+      - name: Apply repository formatters
+        run: |
+          uv run --frozen ruff format src/local_finance tests
+          cd frontend
+          npx --no-install prettier --write src
+      - name: Commit only formatting changes to the review branch
+        run: |
+          git add -- src/local_finance tests frontend/src
+          if git diff --cached --quiet; then exit 0; fi
+          git fetch origin refs/heads/feat/broker-csv-import-20261010
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style: apply Ruff and Prettier to review changes'
+          git push origin HEAD:refs/heads/feat/broker-csv-import-20261010
+      - name: Backend validation
+        run: |
+          uv run --frozen ruff format --check src/local_finance tests
+          uv run --frozen ruff check src/local_finance tests
+          uv run --frozen pytest
+      - name: Frontend validation
+        if: success() || failure()
+        working-directory: frontend
+        run: |
+          npm run format:check
+          npm test
+          npm run typecheck
+          npm run build
