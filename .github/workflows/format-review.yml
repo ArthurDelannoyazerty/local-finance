@@ -29,6 +29,7 @@ jobs:
           npm ci --prefix frontend
       - name: Apply repository formatters
         run: |
+          uv run --frozen ruff check --fix --unsafe-fixes --select I001,C408 tests/test_broker_imports.py
           uv run --frozen ruff format src/local_finance tests
           cd frontend
           npx --no-install prettier --write src
@@ -40,7 +41,7 @@ jobs:
           test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'style: apply Ruff and Prettier to review changes'
+          git commit -m 'style: normalize regression test imports and literals'
           git push origin HEAD:refs/heads/feat/broker-csv-import-20261010
       - name: Backend validation
         run: |
