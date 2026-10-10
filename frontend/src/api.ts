@@ -32,8 +32,21 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     let message = `La requête a échoué (${response.status})`;
     try {
-      const payload = (await response.json()) as { detail?: string };
-      if (payload.detail) message = payload.detail;
+      const payload = (await response.json()) as { detail?: unknown };
+      if (typeof payload.detail === "string" && payload.detail) {
+        message = payload.detail;
+      } else if (Array.isArray(payload.detail)) {
+        const messages = payload.detail.flatMap((item: unknown) => {
+          if (!item || typeof item !== "object" || !("msg" in item)) return [];
+          const error = item as { msg?: unknown; loc?: unknown };
+          if (typeof error.msg !== "string") return [];
+          const location = Array.isArray(error.loc)
+            ? error.loc.filter((part) => part !== "body").join(".")
+            : "";
+          return [location ? `${location}: ${error.msg}` : error.msg];
+        });
+        if (messages.length) message = messages.join("; ");
+      }
     } catch {
       // Keep the fallback message for non-JSON errors.
     }
