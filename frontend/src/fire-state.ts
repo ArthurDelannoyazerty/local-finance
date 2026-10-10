@@ -44,7 +44,10 @@ export function updateProjection<K extends keyof ProjectionInput>(
 ): ProjectionInput {
   const next = normalizeProjection({ ...current, [key]: value });
   next.retirement_age = Math.max(next.current_age, next.retirement_age);
+  // Preserve intermediate input such as "3" while the user is typing "35".
+  // Validation pauses requests; only profile changes clear an invalid age.
   if (
+    (key === "current_age" || key === "years") &&
     next.stop_working_age !== null &&
     (next.stop_working_age < next.current_age ||
       next.stop_working_age > next.current_age + next.years)
