@@ -1,0 +1,64 @@
+.month-selector {
+  position: relative;
+  font-size: 12px;
+}
+.month-selector > summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+.month-selector-body {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 25;
+  width: min(430px, calc(100vw - 44px));
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 12px;
+}
+.month-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+.month-selector .button {
+  padding: 6px 8px;
+  font-size: 11px;
+}
+.month-years {
+  max-height: 340px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.month-years fieldset {
+  margin: 12px 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.month-years legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+.month-checkboxes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 8px;
+}
+.month-checkboxes label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 2px;
+  cursor: pointer;
+}
+.month-checkboxes input {
+  accent-color: var(--accent);
+}

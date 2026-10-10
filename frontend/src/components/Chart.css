@@ -1,0 +1,72 @@
+.interactive-chart {
+  min-width: 0;
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px 12px;
+  margin-bottom: 8px;
+}
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  padding: 3px 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+.chart-legend-item svg {
+  flex: none;
+  pointer-events: none;
+}
+.chart-legend-item[aria-pressed="false"] {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+.chart-legend-item:focus-visible,
+.chart-viewport:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.chart-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.chart-tools .button {
+  padding: 5px 8px;
+  font-size: 11px;
+}
+.chart-tools [aria-pressed="true"] {
+  color: var(--accent);
+}
+.chart-tools span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.chart-viewport {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+}
+.chart-selecting {
+  touch-action: none;
+  cursor: crosshair;
+  user-select: none;
+}
+.chart-surface {
+  width: 100%;
+  transform-origin: 0 0;
+}
+.chart-selection {
+  position: absolute;
+  pointer-events: none;
+  border: 1px solid var(--accent);
+  background: rgba(103, 232, 182, 0.12);
+}
