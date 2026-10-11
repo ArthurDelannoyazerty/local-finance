@@ -112,6 +112,7 @@ export function chartOption(
   config: ChartConfig,
   selected: Selection,
   zoom: AxisZoom[],
+  zoomable = true,
 ): ChartConfig {
   const entries = legendEntries(config);
   const colors = config.color?.length ? config.color : palette;
@@ -144,7 +145,10 @@ export function chartOption(
     tooltip: { ...config.tooltip, confine: true },
     // Native filtering still works; accessible HTML buttons draw the swatches.
     legend: { show: false, data: entries.map((item) => item.name), selected },
-    ...(cartesian ? { dataZoom } : {}),
+    // Override any page-level zoom, including wheel/pinch handlers.
+    ...(cartesian || config.dataZoom
+      ? { dataZoom: zoomable && cartesian ? dataZoom : [] }
+      : {}),
     ...(config.yAxis
       ? {
           yAxis: axes("y").map((axis) =>
@@ -172,7 +176,9 @@ export function chartOption(
           ? { itemStyle: { ...series.itemStyle, color } }
           : {}),
         ...(series.type === "sankey" ? { draggable: false } : {}),
-        ...(series.type === "treemap" ? { roam: false } : {}),
+        ...(series.type === "treemap"
+          ? { roam: false, nodeClick: false, breadcrumb: { show: false } }
+          : {}),
       };
     }),
   };

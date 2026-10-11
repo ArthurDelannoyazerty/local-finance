@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api, searchParams } from "../api";
 import Chart from "../components/Chart";
 import MonthSelector from "../components/MonthSelector";
+import { flowChart, type Sankey } from "../flow-chart";
 import { availableMonths } from "../months";
 import {
   Empty,
@@ -12,43 +13,8 @@ import {
   Panel,
 } from "../components/ui";
 
-type Sankey = {
-  nodes: { name: string }[];
-  links: { source: string; target: string; value: number }[];
-};
 type Response = { cash_flow: Sankey; transfers: Sankey; investments: Sankey };
 type Bounds = { min: string; max: string; today: string };
-
-function option(data: Sankey, colors: string[]) {
-  return {
-    tooltip: {
-      trigger: "item",
-      triggerOn: "mousemove",
-      valueFormatter: (value: number) =>
-        `${Math.round(value).toLocaleString("fr-FR")} €`,
-    },
-    color: colors,
-    series: [
-      {
-        type: "sankey",
-        data: data.nodes,
-        links: data.links,
-        emphasis: { focus: "adjacency" },
-        nodeAlign: "justify",
-        nodeGap: 14,
-        nodeWidth: 15,
-        layoutIterations: 40,
-        lineStyle: { color: "gradient", curveness: 0.52, opacity: 0.35 },
-        itemStyle: {
-          borderColor: "rgba(255,255,255,.22)",
-          borderWidth: 1,
-          borderRadius: 2,
-        },
-        label: { color: "#aeb9c8", fontSize: 11 },
-      },
-    ],
-  };
-}
 
 export default function Flows() {
   const bounds = useQuery({
@@ -117,7 +83,7 @@ export default function Flows() {
           >
             {data.cash_flow.links.length ? (
               <Chart
-                option={option(data.cash_flow, [
+                option={flowChart(data.cash_flow, [
                   "#67e8b6",
                   "#72a5ff",
                   "#ff8585",
@@ -135,15 +101,15 @@ export default function Flows() {
           <div className="grid-2">
             <Panel
               title="Entre vos comptes"
-              description="Transferts internes, sans les confondre avec des dépenses."
+              description="Sorties à gauche, entrées à droite. Les deux sens sont conservés, sans compensation."
             >
               {data.transfers.links.length ? (
                 <Chart
-                  option={option(data.transfers, [
-                    "#72a5ff",
-                    "#5bd7e8",
-                    "#b99cff",
-                  ])}
+                  option={flowChart(
+                    data.transfers,
+                    ["#72a5ff", "#5bd7e8", "#b99cff"],
+                    true,
+                  )}
                   height={350}
                 />
               ) : (
@@ -155,15 +121,15 @@ export default function Flows() {
             </Panel>
             <Panel
               title="Vers vos actifs"
-              description="Achats et ventes reliant comptes et tickers."
+              description="Achats et ventes, des sources à gauche vers les destinations à droite."
             >
               {data.investments.links.length ? (
                 <Chart
-                  option={option(data.investments, [
-                    "#f5c66e",
-                    "#67e8b6",
-                    "#ff8f8f",
-                  ])}
+                  option={flowChart(
+                    data.investments,
+                    ["#f5c66e", "#67e8b6", "#ff8f8f"],
+                    true,
+                  )}
                   height={350}
                 />
               ) : (

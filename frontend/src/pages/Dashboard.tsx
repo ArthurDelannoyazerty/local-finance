@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, searchParams } from "../api";
+import { contiguousDonut } from "../chart-appearance";
 import Chart from "../components/Chart";
 import {
   Empty,
@@ -63,8 +64,7 @@ export default function Dashboard({ range }: { range: DateRangeValue }) {
         type: "pie",
         radius: ["52%", "76%"],
         center: ["50%", "43%"],
-        padAngle: 2,
-        itemStyle: { borderRadius: 5, borderColor: "#101722", borderWidth: 3 },
+        ...contiguousDonut,
         label: { show: false },
         data: data.expenses_by_category.map((item) => ({
           name: item.category,
