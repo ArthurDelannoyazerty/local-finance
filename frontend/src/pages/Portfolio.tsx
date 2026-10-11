@@ -1,6 +1,7 @@
 import { useDeferredValue, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Copy,
   Download,
   Pencil,
   Plus,
@@ -23,6 +24,11 @@ import {
   percent,
   shortDate,
 } from "../components/ui";
+import {
+  initialTradeDraft,
+  tradeRequest,
+  type TradeEditor,
+} from "../trade-form";
 import type { Account, DateRangeValue, Trade } from "../types";
 
 type Summary = {
@@ -49,49 +55,33 @@ type Trades = {
   filters: { accounts: string[]; tickers: string[] };
 };
 
-const blankTrade = (account = "") => ({
-  date: new Date().toISOString().slice(0, 10),
-  ticker: "",
-  name: "",
-  action: "BUY" as const,
-  quantity: 0,
-  unit_price: 0,
-  fees: 0,
-  currency: "EUR",
-  account,
-  comment: "",
-});
-
 function TradeForm({
-  trade,
+  editor,
   accounts,
   onClose,
 }: {
-  trade: Trade | null;
+  editor: TradeEditor;
   accounts: Account[];
   onClose: () => void;
 }) {
   const client = useQueryClient();
   const [form, setForm] = useState(() =>
-    trade ? { ...trade } : blankTrade(accounts[0]?.name),
+    initialTradeDraft(editor, accounts.find((item) => item.is_visible)?.name),
   );
   const mutation = useMutation({
-    mutationFn: () =>
-      trade
-        ? api(`/api/investments/${trade.id}`, {
-            method: "PUT",
-            body: JSON.stringify({ ...form, revision: trade.revision }),
-          })
-        : api("/api/investments", {
-            method: "POST",
-            body: JSON.stringify(form),
-          }),
+    mutationFn: () => {
+      const request = tradeRequest(editor, form);
+      return api(request.path, request.init);
+    },
     onSuccess: async () => {
       await Promise.all([
         client.invalidateQueries({ queryKey: ["trades"] }),
         client.invalidateQueries({ queryKey: ["portfolio-summary"] }),
         client.invalidateQueries({ queryKey: ["portfolio-evolution"] }),
         client.invalidateQueries({ queryKey: ["allocation"] }),
+        client.invalidateQueries({ queryKey: ["date-bounds"] }),
+        client.invalidateQueries({ queryKey: ["flows"] }),
+        client.invalidateQueries({ queryKey: ["projection-defaults"] }),
       ]);
       onClose();
     },
@@ -100,12 +90,12 @@ function TradeForm({
     setForm((current) => ({ ...current, [key]: value }));
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    mutation.mutate();
+    if (!mutation.isPending) mutation.mutate();
   };
   return (
     <form onSubmit={submit}>
       <div className="form-grid">
-        <div className="field">
+        <label className="field">
           <span>Date d’exécution</span>
           <input
             className="input"
@@ -114,7 +104,7 @@ function TradeForm({
             value={form.date}
             onChange={(e) => set("date", e.target.value)}
           />
-        </div>
+        </label>
         <div className="field">
           <span>Opération</span>
           <select
@@ -146,7 +136,7 @@ function TradeForm({
             placeholder="Amundi MSCI World"
           />
         </div>
-        <div className="field">
+        <label className="field">
           <span>Quantité</span>
           <input
             className="input"
@@ -157,7 +147,7 @@ function TradeForm({
             value={form.quantity}
             onChange={(e) => set("quantity", Number(e.target.value))}
           />
-        </div>
+        </label>
         <div className="field">
           <span>Prix unitaire</span>
           <input
@@ -197,7 +187,7 @@ function TradeForm({
               Choisir un compte
             </option>
             {accounts
-              .filter((item) => item.is_visible)
+              .filter((item) => item.is_visible || item.name === form.account)
               .map((item) => (
                 <option key={item.name}>{item.name}</option>
               ))}
@@ -225,7 +215,7 @@ function TradeForm({
         <button className="button button-primary" disabled={mutation.isPending}>
           {mutation.isPending
             ? "Enregistrement…"
-            : trade
+            : editor.mode === "edit"
               ? "Mettre à jour"
               : "Enregistrer"}
         </button>
@@ -242,7 +232,7 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
   const [account, setAccount] = useState("");
   const [ticker, setTicker] = useState("");
   const [page, setPage] = useState(1);
-  const [editing, setEditing] = useState<Trade | "new" | null>(null);
+  const [editing, setEditing] = useState<TradeEditor | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const deferredQuery = useDeferredValue(q);
   const summary = useQuery({
@@ -401,7 +391,7 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
             </button>
             <button
               className="button button-primary"
-              onClick={() => setEditing("new")}
+              onClick={() => setEditing({ mode: "new" })}
             >
               <Plus size={16} />
               Nouvelle opération
@@ -489,7 +479,7 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
           ) : evolution.error ? (
             <ErrorBlock error={evolution.error} />
           ) : evolution.data!.items.length ? (
-            <Chart option={chart} height={470} />
+            <Chart option={chart} height={470} zoomable />
           ) : (
             <Empty
               title="Pas encore d’historique"
@@ -650,9 +640,20 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
                           <button
                             className="icon-button"
                             aria-label="Modifier"
-                            onClick={() => setEditing(trade)}
+                            onClick={() => setEditing({ mode: "edit", trade })}
                           >
                             <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            title="Dupliquer"
+                            aria-label={`Dupliquer ${trade.ticker} du ${trade.date}`}
+                            onClick={() =>
+                              setEditing({ mode: "duplicate", trade })
+                            }
+                          >
+                            <Copy size={14} />
                           </button>
                           <button
                             className="icon-button"
@@ -687,14 +688,21 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
       {editing && (
         <Modal
           title={
-            editing === "new"
+            editing.mode === "new"
               ? "Nouvelle opération boursière"
-              : `Modifier ${editing.ticker}`
+              : editing.mode === "duplicate"
+                ? `Dupliquer ${editing.trade.ticker}`
+                : `Modifier ${editing.trade.ticker}`
           }
           onClose={() => setEditing(null)}
         >
           <TradeForm
-            trade={editing === "new" ? null : editing}
+            key={
+              editing.mode === "new"
+                ? "new"
+                : `${editing.mode}-${editing.trade.id}`
+            }
+            editor={editing}
             accounts={accounts.data ?? []}
             onClose={() => setEditing(null)}
           />

@@ -1,30 +1,53 @@
-# Chart interactions and automatic FIRE calculations
+# Charts, FIRE and trade entry
 
-## Shared charts
+## Shared chart behavior
 
-`components/Chart.tsx` centralizes chart behavior for Dashboard, Portfolio, Allocation, Flows and FIRE. `chart-options.ts` derives legend swatches from actual series styles: lines have no artificial point, and dashed/dotted styles retain their color. Pie legends represent slices.
+`components/Chart.tsx` is used by Dashboard, Portfolio, Allocation, Flows and FIRE. Legends use swatches matching the actual series: lines have no artificial point, and dashed/dotted styles keep their color. Pie legends represent slices.
 
 - Click a legend item to toggle it.
-- Double-click to isolate it; double-click the isolated item again to restore all entries.
+- Double-click to isolate it; double-click it again to restore all entries.
 - Shift+Enter provides keyboard isolation.
-- Drag a rectangle to zoom. Disable selection mode to use ordinary chart interactions. Reset with the button or Escape.
 
-Cartesian charts use data-coordinate zoom on both axes. Pie, Sankey and treemap charts have no Cartesian axes, so they use a cropped/enlarged viewport instead, capped at 16x. Selection starts only after a movement threshold, preserving ordinary clicks such as treemap navigation. Financial axis labels preserve fractional thousands (for example `2 k` and `2,5 k`). Chart animations are disabled.
+Chart animations remain disabled. Monetary axis labels preserve fractional thousands, for example `2 k` and `2,5 k`.
+
+## Zoom: Portfolio only
+
+Zoom is disabled by default. Only Portfolio's wealth-evolution chart passes `zoomable` to the shared chart component. Drag a rectangle to zoom both axes, then use Reset or Escape to return to the full range. Selection mode can be toggled off.
+
+All other pages have no zoom toolbar, rectangle-selection handler or wheel/pinch zoom. Allocation also disables native treemap roaming, click-to-zoom and breadcrumbs. Legend interactions and hover details remain available.
+
+## Appearance
+
+Dashboard's expense donut uses zero slice padding, zero border width and no rounded ends. Small categories retain their proportional area instead of being hidden by decorative gaps.
+
+Allocation account nodes have explicit stable IDs and colored fills, including the account-only view. Asset performance colors remain red/green independently of the account fill.
+
+## Transfer flow bug
+
+A period containing A -> B and B -> A previously sent a cycle to the ECharts Sankey layout. ECharts requires an acyclic graph and throws instead of drawing it. The investment flow has the same problem when a purchase and a sale appear in one period.
+
+`flow-chart.ts` separates sending and receiving node identities into two columns for transfers and investments. All directed gross amounts are preserved; opposite flows are not netted or removed. Original account/asset labels appear in labels and escaped tooltips. Budget flows retain their existing acyclic structure.
+
+Tests reproduce the original cycle failure using the real ECharts SVG renderer and verify successful rendering of reciprocal and three-node flows. Synthetic backend tests verify multi-month aggregation and date filtering. No live personal database is used.
 
 ## FIRE
 
-There is no calculate button. Every valid hypothesis edit immediately requests a deterministic projection. Monte Carlo runs automatically after a 150 ms quiet period to avoid sending hundreds of expensive simulations during a slider drag. Superseded waits and fetches are cancelled. Query keys include the entire parameter set, so a late response cannot replace a newer parameter set's result.
+Every valid hypothesis edit immediately requests a deterministic projection. Monte Carlo runs automatically after a 150 ms quiet period. Superseded waits and fetches are cancelled. Query keys contain the complete parameters, preventing a late response from replacing a newer result.
 
-The previous result stays visible while updating, with a status message. Each result is paired with its own parameters; axes and threshold lines do not mix old results with new inputs. Invalid inputs block requests and show an error. Defaults cannot overwrite an already edited form or loaded scenario.
+The previous result remains visible with an updating indicator. Each result is paired with its own parameters. Invalid inputs block requests and show an error. Defaults cannot overwrite an edited form or loaded scenario.
 
-Monthly savings and expenses are normalized to cents for defaults, scenario loading and manual edits. Inputs use a 0.01 step. FIRE charts use a numeric age axis, including numeric stop-work/tipping markers. The Monte Carlo percentile band handles negative values without adding its invisible baseline to the legend.
+Monthly savings and expenses are normalized to cents for defaults, scenario loading and manual edits. Inputs use a 0.01 step. FIRE uses a numeric age axis and correctly handles negative Monte Carlo bands without exposing the invisible baseline in the legend.
 
-## Month selection and layout
+## Navigation, months and trade duplication
 
-Flows offers calendar-month checkboxes grouped by year, from the first financial entry through the current/latest recorded month. Shortcuts select the last three available months, the current year, all months or none. A deliberate empty selection is not reset to the default. Portfolio has a 24 px separation between its wealth chart and trade history.
+The global Importer button and popup entry point are removed from all screens. Existing stored imports, importer services and the Excel workflow in Data are not deleted.
 
-## Checks
+Flows retains month checkboxes grouped by year from the first financial entry, with shortcuts and a deliberate empty selection. Portfolio retains a 24 px separation before trade history.
 
-Run the repository's standard Ruff, Pytest, Prettier, Vitest, TypeScript and Vite checks. New regression tests are in `tests/test_broker_imports.py`, `frontend/src/interactions.test.ts`, `frontend/src/imports.test.ts` and `frontend/src/api-errors.test.ts`.
+Each trade-history row has a Duplicate button. It opens a new draft with the same ticker, name, account, action, quantity, price, fees and comment, defaulting to today's local date. All fields remain editable. Nothing is written until Save; Cancel changes nothing. Saving uses POST, not the original trade's PUT endpoint, and never copies IDs, revisions or importer metadata. Existing inventory validation still applies, including duplicated sales.
 
-Browser acceptance checks should cover legend single/double-click, rectangle selection on every chart type, Escape/reset, month selection and clearing, rapid FIRE slider edits, loading a saved scenario, and confirming/re-importing a synthetic CSV. Never use a live personal financial history as a public test fixture.
+## Verification
+
+Run Ruff, Pytest, Prettier, Vitest, TypeScript and Vite checks. Added regression tests cover rendering, zoom opt-in, navigation and duplication in `frontend/src/*test.*` and transfer aggregation in `tests/test_transfer_flows.py`.
+
+Browser acceptance should additionally cover Portfolio rectangle selection/reset, legend interactions, editing a duplicate then cancelling/saving, checking the account-only allocation colors, and selecting months containing transfers in both directions.

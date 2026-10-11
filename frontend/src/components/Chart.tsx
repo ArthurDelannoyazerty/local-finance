@@ -27,10 +27,8 @@ import {
   type ChartConfig,
 } from "../chart-options";
 import {
-  initialViewport,
   isolateLegend,
   selectionRect,
-  zoomViewport,
   type Point,
   type Selection,
 } from "../chart-utils";
@@ -58,24 +56,25 @@ type Drag = { id: number; start: Point; end: Point };
 export default function Chart({
   option,
   height = 380,
+  zoomable = false,
 }: {
   option: object;
   height?: number;
+  zoomable?: boolean;
 }) {
   const config = option as ChartConfig;
   const instance = useRef<Instance | null>(null);
   const [selected, setSelected] = useState<Selection>({});
   const beforeClick = useRef<Selection>({});
   const [zoom, setZoom] = useState<AxisZoom[]>([]);
-  const [view, setView] = useState(initialViewport);
   const [selecting, setSelecting] = useState(true);
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
   const moved = useRef(false);
   const entries = legendEntries(config);
   const names = entries.map((entry) => entry.name);
-  const cartesian = Boolean(config.xAxis && config.yAxis);
-  // Keep selection across data updates, but discard a zoom into another domain.
+  const canZoom = zoomable && Boolean(config.xAxis && config.yAxis);
+  // Keep legend selection across updates, not a zoom into another domain.
   const domain = JSON.stringify([
     asArray(config.xAxis).map((axis) => [axis.data, axis.min, axis.max]),
     asArray(config.yAxis).map((axis) => [axis.data, axis.min, axis.max]),
@@ -83,17 +82,16 @@ export default function Chart({
   ]);
   useEffect(() => {
     setZoom([]);
-    setView(initialViewport);
     setDrag(null);
     dragRef.current = null;
-  }, [domain]);
+    moved.current = false;
+  }, [domain, canZoom]);
   const prepared = useMemo(
-    () => chartOption(config, selected, zoom),
-    [config, selected, zoom],
+    () => chartOption(config, selected, zoom, canZoom),
+    [config, selected, zoom, canZoom],
   );
   const reset = () => {
     setZoom([]);
-    setView(initialViewport);
     setDrag(null);
     dragRef.current = null;
   };
@@ -106,12 +104,11 @@ export default function Chart({
   };
   const startDrag = (event: PointerEvent<HTMLDivElement>) => {
     moved.current = false;
-    if (!selecting || event.button !== 0 || !event.isPrimary) return;
+    if (!canZoom || !selecting || event.button !== 0 || !event.isPrimary) {
+      return;
+    }
     const start = point(event);
-    if (
-      cartesian &&
-      !instance.current?.containPixel({ gridIndex: 0 }, [start.x, start.y])
-    ) {
+    if (!instance.current?.containPixel({ gridIndex: 0 }, [start.x, start.y])) {
       return;
     }
     event.currentTarget.focus({ preventScroll: true });
@@ -128,43 +125,35 @@ export default function Chart({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     const rect = selectionRect(current.start, end);
-    if (rect.width < 8 || rect.height < 8) return;
-    moved.current = true;
-    if (cartesian && instance.current) {
-      const chart = instance.current;
-      const next = (["x", "y"] as const).flatMap((dimension) =>
-        asArray(config[`${dimension}Axis`]).flatMap((_, index) => {
-          const finder = { [`${dimension}AxisIndex`]: index };
-          const first = chart.convertFromPixel(
-            finder,
-            current.start[dimension],
-          );
-          const last = chart.convertFromPixel(finder, end[dimension]);
-          if (
-            typeof first !== "number" ||
-            typeof last !== "number" ||
-            !Number.isFinite(first) ||
-            !Number.isFinite(last)
-          )
-            return [];
-          return [
-            {
-              id: `local-${dimension}-${index}`,
-              startValue: Math.min(first, last),
-              endValue: Math.max(first, last),
-            },
-          ];
-        }),
-      );
-      setZoom(next);
-    } else {
-      const bounds = event.currentTarget.getBoundingClientRect();
-      setView((previous) =>
-        zoomViewport(previous, current.start, end, bounds.width, bounds.height),
-      );
+    if (!canZoom || rect.width < 8 || rect.height < 8 || !instance.current) {
+      return;
     }
+    moved.current = true;
+    const chart = instance.current;
+    const next = (["x", "y"] as const).flatMap((dimension) =>
+      asArray(config[`${dimension}Axis`]).flatMap((_, index) => {
+        const finder = { [`${dimension}AxisIndex`]: index };
+        const first = chart.convertFromPixel(finder, current.start[dimension]);
+        const last = chart.convertFromPixel(finder, end[dimension]);
+        if (
+          typeof first !== "number" ||
+          typeof last !== "number" ||
+          !Number.isFinite(first) ||
+          !Number.isFinite(last)
+        ) {
+          return [];
+        }
+        return [
+          {
+            id: `local-${dimension}-${index}`,
+            startValue: Math.min(first, last),
+            endValue: Math.max(first, last),
+          },
+        ];
+      }),
+    );
+    setZoom(next);
   };
-  const hasZoom = zoom.length > 0 || view.scale !== 1;
   return (
     <div className="interactive-chart">
       {entries.length > 0 && (
@@ -228,37 +217,41 @@ export default function Chart({
           ))}
         </div>
       )}
-      <div className="chart-tools">
-        <button
-          type="button"
-          className="button button-ghost"
-          aria-pressed={selecting}
-          onClick={() => setSelecting((value) => !value)}
-        >
-          Zoom par sélection
-        </button>
-        <button
-          type="button"
-          className="button button-ghost"
-          disabled={!hasZoom}
-          onClick={reset}
-        >
-          Réinitialiser le zoom
-        </button>
-        <span>Glissez pour cadrer une zone · Échap pour réinitialiser</span>
-      </div>
+      {canZoom && (
+        <div className="chart-tools">
+          <button
+            type="button"
+            className="button button-ghost"
+            aria-pressed={selecting}
+            onClick={() => setSelecting((value) => !value)}
+          >
+            Zoom par sélection
+          </button>
+          <button
+            type="button"
+            className="button button-ghost"
+            disabled={zoom.length === 0}
+            onClick={reset}
+          >
+            Réinitialiser le zoom
+          </button>
+          <span>Glissez pour cadrer une zone · Échap pour réinitialiser</span>
+        </div>
+      )}
       <div
-        className={`chart-viewport${selecting ? " chart-selecting" : ""}`}
+        className={`chart-viewport${canZoom && selecting ? " chart-selecting" : ""}`}
         style={{ height }}
-        tabIndex={0}
-        aria-label="Graphique interactif. Glisser pour zoomer, Échap pour réinitialiser."
-        onPointerDown={startDrag}
+        tabIndex={canZoom ? 0 : undefined}
+        aria-label={
+          canZoom
+            ? "Graphique interactif. Glisser pour zoomer, Échap pour réinitialiser."
+            : "Graphique interactif"
+        }
+        onPointerDown={canZoom ? startDrag : undefined}
         onPointerMove={(event) => {
           const current = dragRef.current;
-          if (current && current.id === event.pointerId) {
+          if (canZoom && current && current.id === event.pointerId) {
             const end = point(event);
-            // Capture only an actual drag; ordinary clicks must still reach
-            // the canvas (notably treemap drill-down and breadcrumbs).
             if (
               Math.max(
                 Math.abs(end.x - current.start.x),
@@ -272,7 +265,7 @@ export default function Chart({
             setDrag(dragRef.current);
           }
         }}
-        onPointerUp={finishDrag}
+        onPointerUp={canZoom ? finishDrag : undefined}
         onPointerCancel={() => {
           dragRef.current = null;
           setDrag(null);
@@ -282,35 +275,28 @@ export default function Chart({
           setDrag(null);
         }}
         onClickCapture={(event) => {
-          if (moved.current) {
+          if (canZoom && moved.current) {
             event.preventDefault();
             event.stopPropagation();
             moved.current = false;
           }
         }}
         onKeyDown={(event) => {
-          if (event.key === "Escape") reset();
+          if (canZoom && event.key === "Escape") reset();
         }}
       >
-        <div
-          className="chart-surface"
-          style={{
-            transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+        <ReactEChartsCore
+          echarts={echarts}
+          option={prepared}
+          notMerge
+          lazyUpdate={false}
+          onChartReady={(chart: Instance) => {
+            instance.current = chart;
           }}
-        >
-          <ReactEChartsCore
-            echarts={echarts}
-            option={prepared}
-            notMerge
-            lazyUpdate={false}
-            onChartReady={(chart: Instance) => {
-              instance.current = chart;
-            }}
-            style={{ height, width: "100%" }}
-            opts={{ renderer: "canvas" }}
-          />
-        </div>
-        {drag && (
+          style={{ height, width: "100%" }}
+          opts={{ renderer: "canvas" }}
+        />
+        {canZoom && drag && (
           <div
             className="chart-selection"
             style={selectionRect(drag.start, drag.end)}

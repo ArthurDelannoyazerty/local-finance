@@ -2,6 +2,12 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format, subMonths } from "date-fns";
 import { api, searchParams } from "../api";
+import {
+  allocationNodes,
+  type AllocationItem,
+  type AllocationMode,
+} from "../allocation-data";
+import { escapeHtml } from "../flow-chart";
 import Chart from "../components/Chart";
 import {
   Empty,
@@ -13,32 +19,14 @@ import {
   percent,
 } from "../components/ui";
 
-type Item = {
-  account: string;
-  type: "CASH" | "INVESTMENT";
-  ticker: string;
-  name: string;
-  quantity: number;
-  unit_price: number;
-  value: number;
-  currency: string;
-  start_value: number;
-  net_contribution: number;
-  performance_percent: number | null;
-};
-type Response = { date: string; start: string | null; items: Item[] };
-type Mode = "accounts" | "assets" | "performance";
-
-const performanceColor = (value: number | null) => {
-  if (value === null) return "#354153";
-  const magnitude = Math.min(1, Math.abs(value) / 25);
-  return value >= 0
-    ? `rgba(70, ${Math.round(150 + 65 * magnitude)}, ${Math.round(125 + 45 * magnitude)}, .9)`
-    : `rgba(${Math.round(185 + 55 * magnitude)}, ${Math.round(100 - 30 * magnitude)}, ${Math.round(105 - 20 * magnitude)}, .9)`;
+type Response = {
+  date: string;
+  start: string | null;
+  items: AllocationItem[];
 };
 
 export default function Allocation() {
-  const [mode, setMode] = useState<Mode>("assets");
+  const [mode, setMode] = useState<AllocationMode>("assets");
   const [at, setAt] = useState(format(new Date(), "yyyy-MM-dd"));
   const [start, setStart] = useState(
     format(subMonths(new Date(), 3), "yyyy-MM-dd"),
@@ -52,35 +40,7 @@ export default function Allocation() {
   });
   const items = query.data?.items ?? [];
   const option = useMemo(() => {
-    const visible =
-      mode === "performance"
-        ? items.filter((item) => item.type === "INVESTMENT")
-        : items;
-    const accounts = Array.from(new Set(visible.map((item) => item.account)));
-    const data = accounts.map((account) => {
-      const children = visible
-        .filter((item) => item.account === account)
-        .map((item) => ({
-          name: item.name,
-          value: item.value,
-          ticker: item.ticker,
-          performance: item.performance_percent,
-          itemStyle:
-            mode === "performance"
-              ? { color: performanceColor(item.performance_percent) }
-              : undefined,
-        }));
-      return mode === "accounts"
-        ? {
-            name: account,
-            value: children.reduce((sum, item) => sum + item.value, 0),
-          }
-        : {
-            name: account,
-            value: children.reduce((sum, item) => sum + item.value, 0),
-            children,
-          };
-    });
+    const data = allocationNodes(items, mode);
     return {
       tooltip: {
         formatter: (params: {
@@ -91,7 +51,7 @@ export default function Allocation() {
             performance?: number | null;
           };
         }) => {
-          const value = `<strong>${params.data.name}</strong><br/>${money(params.data.value)}`;
+          const value = `<strong>${escapeHtml(params.data.name)}</strong><br/>${money(params.data.value)}`;
           return params.data.performance !== undefined
             ? `${value}<br/>Performance : ${percent(params.data.performance)}`
             : value;
@@ -101,13 +61,9 @@ export default function Allocation() {
         {
           type: "treemap",
           data,
-          roam: true,
-          nodeClick: "zoomToNode",
-          breadcrumb: {
-            show: true,
-            itemStyle: { color: "#182231", borderColor: "#283548" },
-            textStyle: { color: "#aab5c4" },
-          },
+          roam: false,
+          nodeClick: false,
+          breadcrumb: { show: false },
           upperLabel: {
             show: true,
             height: 26,
@@ -176,7 +132,7 @@ export default function Allocation() {
         description={
           mode === "performance"
             ? "La performance tient compte des apports et retraits boursiers de la période."
-            : "Cliquez dans un bloc pour zoomer, utilisez le fil d’Ariane pour revenir."
+            : "Survolez un bloc pour afficher le détail de sa valeur."
         }
         action={
           <div className="filters" style={{ margin: 0 }}>

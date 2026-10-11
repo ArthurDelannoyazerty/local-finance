@@ -1,0 +1,41 @@
+name: UI refinement validation
+on:
+  push:
+    branches: [feat/broker-csv-import-20261010]
+    paths: [.github/workflows/ui-refinement-check.yml]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '24'
+      - name: Install locked dependencies
+        run: |
+          uv sync --frozen --dev
+          npm ci --prefix frontend
+      - name: Inspect formatter diff without changing the branch
+        run: |
+          uv run --frozen ruff format src/local_finance tests
+          (cd frontend && npx --no-install prettier --write src)
+          git diff -- src/local_finance tests frontend/src
+      - name: Backend tests and lint
+        run: |
+          uv run --frozen ruff check src/local_finance tests
+          uv run --frozen pytest
+      - name: Frontend tests, types and build
+        if: success() || failure()
+        working-directory: frontend
+        run: |
+          npm test
+          npm run typecheck
+          npm run build
