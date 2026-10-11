@@ -151,10 +151,7 @@ describe("chart appearance", () => {
     expect(data[0].itemStyle.color).toBe(accountColor("A"));
     expect(data[0].itemStyle.color).not.toBe(data[1].itemStyle.color);
     expect(data[0]).not.toHaveProperty("children");
-    const reordered = allocationNodes(
-      [position("B"), position("A")],
-      "assets",
-    );
+    const reordered = allocationNodes([position("B"), position("A")], "assets");
     expect(reordered[1].itemStyle.color).toBe(data[0].itemStyle.color);
     const rendered = svg({ series: [{ type: "treemap", data }] });
     expect(rendered).toContain(accountColor("A"));

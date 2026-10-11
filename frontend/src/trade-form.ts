@@ -15,8 +15,7 @@ export type TradeDraft = Pick<
   | "comment"
 >;
 export type TradeEditor =
-  | { mode: "new" }
-  | { mode: "edit" | "duplicate"; trade: Trade };
+  { mode: "new" } | { mode: "edit" | "duplicate"; trade: Trade };
 
 /** Whitelist editable fields: never copy identity, revisions or import receipts. */
 export function tradeFields(trade: TradeDraft): TradeDraft {

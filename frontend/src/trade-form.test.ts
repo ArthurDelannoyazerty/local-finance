@@ -66,7 +66,11 @@ describe("duplicate trade drafts", () => {
   });
 
   it("does not propagate unexpected imported metadata into a new order", () => {
-    const imported = { ...original, source_key: "receipt", import_batch_id: "batch" };
+    const imported = {
+      ...original,
+      source_key: "receipt",
+      import_batch_id: "batch",
+    };
     const editor = { mode: "duplicate" as const, trade: imported };
     const request = tradeRequest(editor, imported);
     const body = JSON.parse(request.init.body as string);
@@ -92,7 +96,11 @@ describe("duplicate trade drafts", () => {
     });
     expect(sell.action).toBe("SELL");
     const blank = initialTradeDraft({ mode: "new" }, "Current account");
-    expect(blank).toMatchObject({ ticker: "", name: "", account: "Current account" });
+    expect(blank).toMatchObject({
+      ticker: "",
+      name: "",
+      account: "Current account",
+    });
     expect(tradeRequest({ mode: "new" }, blank).init.method).toBe("POST");
   });
 });

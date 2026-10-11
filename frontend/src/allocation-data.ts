@@ -39,10 +39,7 @@ const performanceColor = (value: number | null) => {
     : `rgba(${Math.round(185 + 55 * magnitude)}, ${Math.round(100 - 30 * magnitude)}, ${Math.round(105 - 20 * magnitude)}, .9)`;
 };
 
-export function allocationNodes(
-  items: AllocationItem[],
-  mode: AllocationMode,
-) {
+export function allocationNodes(items: AllocationItem[], mode: AllocationMode) {
   const visible =
     mode === "performance"
       ? items.filter((item) => item.type === "INVESTMENT")

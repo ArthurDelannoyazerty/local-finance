@@ -12,9 +12,7 @@ const option = {
   xAxis: { type: "category", data: ["Jan", "Feb"] },
   yAxis: { type: "value" },
   dataZoom: [{ type: "inside" }],
-  series: [
-    { name: "Wealth", type: "line", data: [10, 20], symbol: "none" },
-  ],
+  series: [{ name: "Wealth", type: "line", data: [10, 20], symbol: "none" }],
 };
 
 describe("zoom is opt-in for Portfolio", () => {
