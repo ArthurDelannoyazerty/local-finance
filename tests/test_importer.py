@@ -196,9 +196,7 @@ def test_reimport_with_reversed_duplicate_key_owners_succeeds(
     assert result["applied"]["unchanged"] == 2
 
     with db.read() as connection:
-        actual = connection.execute(
-            f"SELECT id, source_key FROM {table} ORDER BY id"
-        ).fetchall()
+        actual = connection.execute(f"SELECT id, source_key FROM {table} ORDER BY id").fetchall()
     assert [row["source_key"] for row in actual] == [keys[0], keys[1]]
 
 
