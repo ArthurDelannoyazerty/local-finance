@@ -1,12 +1,18 @@
-import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import CopyButton from "./components/CopyButton";
 import { PageHeader } from "./components/ui";
 import { MAX_CLIPBOARD_BYTES } from "./clipboard";
 
-const source = (file: string) =>
-  readFileSync(new URL(file, import.meta.url), "utf8");
+const sources = import.meta.glob<string>(
+  ["./pages/*.tsx", "./components/Layout.tsx"],
+  { query: "?raw", import: "default", eager: true },
+);
+const source = (file: string) => {
+  const text = sources[file];
+  if (text === undefined) throw new Error(`Missing source: ${file}`);
+  return text;
+};
 
 describe("copy UI and compact pages", () => {
   it("renders a labelled icon button and an initially empty live notification", () => {
