@@ -9,7 +9,7 @@ from local_finance.importer import (
     cancel_import_preview,
     create_import_preview,
 )
-from tests.conftest import TRANSACTION_HEADERS
+from tests.conftest import TRANSACTION_HEADERS, TRANSFER_HEADERS
 
 
 def test_preview_is_read_only_and_income_expense_keys_do_not_collide(
@@ -147,3 +147,90 @@ def test_cancelled_preview_releases_staged_rows(db, workbook_bytes) -> None:
         ).fetchone()
         assert batch["status"] == "CANCELLED"
         assert connection.execute("SELECT COUNT(*) FROM import_rows").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    ("sheet", "headers", "rows", "table"),
+    [
+        (
+            "Dépenses",
+            TRANSACTION_HEADERS,
+            [["15/03/2026", "Courses", "Courant", 42, "EUR", ""]] * 2,
+            "transactions",
+        ),
+        (
+            "Transferts",
+            TRANSFER_HEADERS,
+            [["15/03/2026", "Courant", "Épargne", 42, ""]] * 2,
+            "transfers",
+        ),
+    ],
+)
+def test_reimport_with_reversed_duplicate_key_owners_succeeds(
+    db, workbook_bytes, sheet, headers, rows, table
+) -> None:
+    contents = workbook_bytes({sheet: (headers, rows)})
+    first = create_import_preview("initial.xlsx", contents, db=db)
+    apply_import_preview(first["id"], allow_deletions=False, db=db)
+
+    # The first import assigns keys in spreadsheet order. On a later import,
+    # existing rows are matched by date/id, which can reverse those assignments.
+    with db.transaction(immediate=True) as connection:
+        stored = connection.execute(
+            f"SELECT id, source_key, source_occurrence FROM {table} ORDER BY id"
+        ).fetchall()
+        keys = {row["source_occurrence"]: row["source_key"] for row in stored}
+        connection.execute(f"UPDATE {table} SET source_key = NULL")
+        connection.execute(
+            f"UPDATE {table} SET source_key = ? WHERE id = ?",
+            (keys[1], stored[0]["id"]),
+        )
+        connection.execute(
+            f"UPDATE {table} SET source_key = ? WHERE id = ?",
+            (keys[0], stored[1]["id"]),
+        )
+
+    preview = create_import_preview("repeat.xlsx", contents, db=db)
+    assert preview["total"] == {"added": 0, "removed": 0, "unchanged": 2}
+    result = apply_import_preview(preview["id"], allow_deletions=False, db=db)
+    assert result["applied"]["unchanged"] == 2
+
+    with db.read() as connection:
+        actual = connection.execute(f"SELECT id, source_key FROM {table} ORDER BY id").fetchall()
+    assert [row["source_key"] for row in actual] == [keys[0], keys[1]]
+
+
+@pytest.mark.parametrize("allow_deletions", [False, True])
+def test_stale_key_on_edited_row_does_not_block_reimport(
+    db, workbook_bytes, allow_deletions
+) -> None:
+    contents = workbook_bytes(
+        {"Revenus": (TRANSACTION_HEADERS, [["01/01/2026", "Salaire", "Courant", 2000, "EUR", ""]])}
+    )
+    first = create_import_preview("initial.xlsx", contents, db=db)
+    apply_import_preview(first["id"], allow_deletions=False, db=db)
+
+    with db.transaction(immediate=True) as connection:
+        original = connection.execute("SELECT id, source_key FROM transactions").fetchone()
+        connection.execute(
+            "UPDATE transactions SET amount = 1234 WHERE id = ?",
+            (original["id"],),
+        )
+
+    preview = create_import_preview("restored.xlsx", contents, db=db)
+    assert preview["total"] == {"added": 1, "removed": 1, "unchanged": 0}
+    result = apply_import_preview(preview["id"], allow_deletions=allow_deletions, db=db)
+    assert result["applied"]["added"] == 1
+
+    with db.read() as connection:
+        restored = connection.execute(
+            "SELECT source_key FROM transactions WHERE amount = 2000"
+        ).fetchone()
+        edited = connection.execute(
+            "SELECT source_key FROM transactions WHERE amount = 1234"
+        ).fetchone()
+    assert restored["source_key"] == original["source_key"]
+    if allow_deletions:
+        assert edited is None
+    else:
+        assert edited["source_key"] is None
