@@ -180,7 +180,9 @@ export default function Dashboard({ range }: { range: DateRangeValue }) {
             <Chart
               option={donut}
               height={410}
-              copyText={(selected) => expenseText(data.expenses_by_category, selected)}
+              copyText={(selected) =>
+                expenseText(data.expenses_by_category, selected)
+              }
             />
           </Panel>
           <Panel title="Rythme mensuel">

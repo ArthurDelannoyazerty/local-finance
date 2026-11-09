@@ -23,7 +23,10 @@ type MonthlyRow = {
   expense_average_3m: number;
 };
 
-export function monthlyCsv(rows: MonthlyRow[], selected: Selection = {}): string {
+export function monthlyCsv(
+  rows: MonthlyRow[],
+  selected: Selection = {},
+): string {
   const columns = [
     { name: "Revenus", header: "Revenus", key: "income" },
     { name: "Dépenses", header: "Dépenses", key: "expense" },
@@ -84,7 +87,10 @@ export function portfolioCsv(
   const visible = columns.filter((column) => selected[column.name] !== false);
   return delimitedText(
     ["Date", ...visible.map((column) => column.header)],
-    data.items.map((row) => [row.date, ...visible.map((column) => row[column.key])]),
+    data.items.map((row) => [
+      row.date,
+      ...visible.map((column) => row[column.key]),
+    ]),
   );
 }
 

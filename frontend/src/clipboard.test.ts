@@ -13,7 +13,9 @@ describe("clipboard text", () => {
         ["Compte", "Note", "Montant"],
         [["Compte, joint", 'Ligne 1\n"Ligne 2"', -1234.5678]],
       ),
-    ).toBe('Compte,Note,Montant\r\n"Compte, joint","Ligne 1\n""Ligne 2""",-1234.5678');
+    ).toBe(
+      'Compte,Note,Montant\r\n"Compte, joint","Ligne 1\n""Ligne 2""",-1234.5678',
+    );
   });
   it("represents missing values as empty cells, not zero or NaN", () => {
     expect(delimitedText(["A", "B", "C"], [[null, undefined, NaN]])).toBe(
@@ -42,7 +44,9 @@ describe("clipboard text", () => {
       complete = resolve;
     });
     const done = vi.fn();
-    const task = writeClipboard("data", { writeText: () => pending }).then(done);
+    const task = writeClipboard("data", { writeText: () => pending }).then(
+      done,
+    );
     await Promise.resolve();
     expect(done).not.toHaveBeenCalled();
     complete();

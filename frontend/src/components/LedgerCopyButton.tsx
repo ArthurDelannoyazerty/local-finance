@@ -35,7 +35,9 @@ export default function LedgerCopyButton() {
     <CopyButton
       text={query.data?.text ?? ""}
       disabled={query.isFetching || !query.data?.row_count}
-      caption={query.isPending ? "Préparation de la copie…" : "Tout copier (CSV)"}
+      caption={
+        query.isPending ? "Préparation de la copie…" : "Tout copier (CSV)"
+      }
       label="Copier toutes les opérations : revenus, dépenses, transferts, achats et ventes, toutes dates et tous comptes, sans les filtres de cette page"
     />
   );

@@ -31,7 +31,12 @@ export function monteCarloCsv(
   const band = selected["Zone 80%"] !== false;
   const median = selected["Médiane"] !== false;
   return delimitedText(
-    ["Années", "Âge", ...(band ? ["P10", "P90"] : []), ...(median ? ["Médiane"] : [])],
+    [
+      "Années",
+      "Âge",
+      ...(band ? ["P10", "P90"] : []),
+      ...(median ? ["Médiane"] : []),
+    ],
     items.map((item) => [
       item.year,
       item.age,

@@ -18,7 +18,9 @@ export default function CopyButton({
   caption?: string;
   disabled?: boolean;
 }) {
-  const [state, setState] = useState<"idle" | "busy" | "copied" | "error">("idle");
+  const [state, setState] = useState<"idle" | "busy" | "copied" | "error">(
+    "idle",
+  );
   const [error, setError] = useState("");
   const generation = useRef(0);
   const busy = useRef(false);

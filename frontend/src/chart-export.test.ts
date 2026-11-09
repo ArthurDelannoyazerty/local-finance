@@ -114,25 +114,41 @@ describe("chart exports match the active view", () => {
     expect(csv).toContain("2026-03-01,PEA,Investissement,Mon ETF");
     expect(csv).toContain("2026-01-01,11.111");
     const unknown = [{ ...items[1], performance_percent: null }];
-    expect(allocationCsv(unknown, "performance", "2026-03-01", "2026-01-01")).toMatch(
-      /2026-01-01,$/,
-    );
+    expect(
+      allocationCsv(unknown, "performance", "2026-03-01", "2026-01-01"),
+    ).toMatch(/2026-01-01,$/);
   });
   it("honors FIRE series selection and preserves missing Coast values", () => {
     const option = {
       series: [
-        { name: "Capital", data: [[30, 100], [31, 200]] },
-        { name: "Coast", data: [[30, 80], [31, null]] },
+        {
+          name: "Capital",
+          data: [
+            [30, 100],
+            [31, 200],
+          ],
+        },
+        {
+          name: "Coast",
+          data: [
+            [30, 80],
+            [31, null],
+          ],
+        },
       ],
     };
-    expect(projectionCsv(option)).toBe("Âge,Capital,Coast\r\n30,100,80\r\n31,200,");
+    expect(projectionCsv(option)).toBe(
+      "Âge,Capital,Coast\r\n30,100,80\r\n31,200,",
+    );
     expect(projectionCsv(option, { Coast: false })).toBe(
       "Âge,Capital\r\n30,100\r\n31,200",
     );
   });
   it("copies real Monte Carlo bounds, not the internal stacked-band delta", () => {
     const rows = [{ year: 1, age: 31, p10: -10, p50: 20, p90: 90 }];
-    expect(monteCarloCsv(rows)).toBe("Années,Âge,P10,P90,Médiane\r\n1,31,-10,90,20");
+    expect(monteCarloCsv(rows)).toBe(
+      "Années,Âge,P10,P90,Médiane\r\n1,31,-10,90,20",
+    );
     expect(monteCarloCsv(rows, { "Zone 80%": false })).toBe(
       "Années,Âge,Médiane\r\n1,31,20",
     );
@@ -147,7 +163,8 @@ describe("chart exports match the active view", () => {
     expect(asArray(first.series)[0].draggable).toBe(true);
     expect(asArray(accounts.series)[0].draggable).toBe(false);
     expect(
-      asArray(chartOption({ series: { type: "sankey" } }, {}, []).series)[0].draggable,
+      asArray(chartOption({ series: { type: "sankey" } }, {}, []).series)[0]
+        .draggable,
     ).toBe(false);
   });
 });

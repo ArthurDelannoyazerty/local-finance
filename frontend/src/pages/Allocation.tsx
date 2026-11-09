@@ -206,7 +206,9 @@ export default function Allocation() {
                       <td>{item.account}</td>
                       <td>
                         <span className="badge">
-                          {item.type === "CASH" ? "Liquidités" : "Investissement"}
+                          {item.type === "CASH"
+                            ? "Liquidités"
+                            : "Investissement"}
                         </span>
                       </td>
                       <td>{item.name}</td>

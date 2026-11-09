@@ -20,7 +20,9 @@ export function delimitedText(
   separator = ",",
 ): string {
   return [headers, ...rows]
-    .map((row) => row.map((value) => cellText(value, separator)).join(separator))
+    .map((row) =>
+      row.map((value) => cellText(value, separator)).join(separator),
+    )
     .join("\r\n");
 }
 
@@ -37,7 +39,9 @@ export async function writeClipboard(
     throw new Error("Copie trop volumineuse (limite de sécurité : 5 Mio).");
   }
   if (!clipboard?.writeText) {
-    throw new Error("Le presse-papiers nécessite un navigateur compatible et HTTPS.");
+    throw new Error(
+      "Le presse-papiers nécessite un navigateur compatible et HTTPS.",
+    );
   }
   await clipboard.writeText(text);
 }

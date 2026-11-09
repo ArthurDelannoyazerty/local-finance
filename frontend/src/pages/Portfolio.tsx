@@ -485,7 +485,9 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
               option={chart}
               height={470}
               zoomable
-              copyText={(selected) => portfolioCsv(evolution.data!, mode, selected)}
+              copyText={(selected) =>
+                portfolioCsv(evolution.data!, mode, selected)
+              }
             />
           ) : (
             <Empty

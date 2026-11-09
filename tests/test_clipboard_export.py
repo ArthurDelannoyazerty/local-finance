@@ -20,8 +20,10 @@ def seed_ledger(db) -> None:
                                      comment, type, is_excluded)
             VALUES (?, '2020-01-01', 'Courses', 'Hidden', 12.34, 'EUR', ?, ?, 1)
             """,
-            [(f"tx-{i:04}", 'Été, "courses"\nSuite', "INCOME" if i % 2 else "EXPENSE")
-             for i in range(251)],
+            [
+                (f"tx-{i:04}", 'Été, "courses"\nSuite', "INCOME" if i % 2 else "EXPENSE")
+                for i in range(251)
+            ],
         )
         connection.execute(
             """

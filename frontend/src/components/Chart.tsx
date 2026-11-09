@@ -224,7 +224,9 @@ export default function Chart({
           )}
           {copyText !== undefined && (
             <CopyButton
-              text={typeof copyText === "function" ? copyText(selected) : copyText}
+              text={
+                typeof copyText === "function" ? copyText(selected) : copyText
+              }
             />
           )}
         </div>
