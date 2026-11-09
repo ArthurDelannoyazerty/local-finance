@@ -13,6 +13,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from . import __version__
 from .api import router
 from .broker_api import router as broker_router
+from .clipboard_export import router as clipboard_router
 from .db import database
 from .settings import settings
 
@@ -69,6 +70,7 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1_000, compresslevel=5)
 app.include_router(router)
 app.include_router(broker_router)
+app.include_router(clipboard_router)
 
 
 @app.get("/api", include_in_schema=False)

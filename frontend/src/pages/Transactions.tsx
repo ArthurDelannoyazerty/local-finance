@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-table";
 import { LockKeyhole, Search } from "lucide-react";
 import { api, searchParams } from "../api";
+import LedgerCopyButton from "../components/LedgerCopyButton";
 import {
   Empty,
   ErrorBlock,
@@ -103,15 +104,11 @@ export default function Transactions({ range }: { range: DateRangeValue }) {
       <PageHeader
         eyebrow="Quotidien"
         title="Transactions"
-        description="Recherchez vos revenus et dépenses sans créer une seconde version des données de votre application mobile."
+        actions={<LedgerCopyButton />}
       />
       <div className="callout" style={{ marginBottom: 15 }}>
         <LockKeyhole size={18} />
-        <div>
-          <strong>Registre en lecture seule.</strong> Les corrections se font
-          dans l’application Android, puis reviennent ici au prochain import
-          Excel confirmé.
-        </div>
+        <strong>Registre en lecture seule.</strong>
       </div>
       {query.data && (
         <div

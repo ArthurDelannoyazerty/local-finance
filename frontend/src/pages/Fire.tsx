@@ -8,6 +8,7 @@ import {
 import { Plus, Save, Trash2 } from "lucide-react";
 import { api } from "../api";
 import Chart from "../components/Chart";
+import { monteCarloCsv, projectionCsv } from "../fire-export";
 import {
   Empty,
   ErrorBlock,
@@ -199,11 +200,7 @@ export default function Fire() {
   );
   return (
     <>
-      <PageHeader
-        eyebrow="Planification"
-        title="Projections FIRE"
-        description="Hypothèses, événements de vie et simulations actualisés automatiquement."
-      />
+      <PageHeader eyebrow="Planification" title="Projections FIRE" />
       <div className="fire-layout">
         <Panel
           className="fire-controls"
@@ -477,7 +474,11 @@ export default function Fire() {
                   </div>
                 }
               >
-                <Chart option={chart} height={520} />
+                <Chart
+                  option={chart}
+                  height={520}
+                  copyText={(selected) => projectionCsv(chart, selected)}
+                />
               </Panel>
             </>
           )}
@@ -599,7 +600,11 @@ export default function Fire() {
                     value={money(mc.metrics.pessimistic_final)}
                   />
                 </div>
-                <Chart option={mcChart} height={430} />
+                <Chart
+                  option={mcChart}
+                  height={430}
+                  copyText={(selected) => monteCarloCsv(mc.items, selected)}
+                />
               </>
             )}
           </Panel>

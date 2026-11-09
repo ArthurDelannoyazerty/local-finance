@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, searchParams } from "../api";
 import { contiguousDonut } from "../chart-appearance";
+import { expenseText, monthlyCsv } from "../chart-export";
 import Chart from "../components/Chart";
 import {
   Empty,
@@ -140,11 +141,7 @@ export default function Dashboard({ range }: { range: DateRangeValue }) {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Quotidien"
-        title="Vue d’ensemble"
-        description="Votre argent du quotidien, résumé sans perdre de vue la construction du patrimoine."
-      />
+      <PageHeader eyebrow="Quotidien" title="Vue d’ensemble" />
       <div className="metrics">
         <MetricCard
           label="Revenus"
@@ -179,17 +176,19 @@ export default function Dashboard({ range }: { range: DateRangeValue }) {
         </Panel>
       ) : (
         <div className="grid-2">
-          <Panel
-            title="Où part votre argent"
-            description="Dépenses regroupées selon les catégories de l’application mobile."
-          >
-            <Chart option={donut} height={410} />
+          <Panel title="Où part votre argent">
+            <Chart
+              option={donut}
+              height={410}
+              copyText={(selected) => expenseText(data.expenses_by_category, selected)}
+            />
           </Panel>
-          <Panel
-            title="Rythme mensuel"
-            description="Revenus, dépenses et tendance glissante des trois derniers mois."
-          >
-            <Chart option={monthly} height={410} />
+          <Panel title="Rythme mensuel">
+            <Chart
+              option={monthly}
+              height={410}
+              copyText={(selected) => monthlyCsv(data.monthly, selected)}
+            />
           </Panel>
         </div>
       )}

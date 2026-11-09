@@ -1,0 +1,51 @@
+.copy-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+.copy-control button {
+  min-width: 32px;
+  min-height: 32px;
+}
+.copy-control button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.copy-feedback:not(:empty),
+.copy-error {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 5px);
+  right: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border, #273142);
+  border-radius: 8px;
+  background: #17212e;
+  box-shadow: 0 4px 16px #0004;
+  font-size: 12px;
+}
+.copy-feedback:not(:empty) {
+  color: var(--accent);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.copy-error {
+  color: #ff8f8f;
+  width: min(280px, 75vw);
+  overflow-wrap: anywhere;
+}
+.chart-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.chart-heading > .chart-legend {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+.chart-heading > .copy-control {
+  margin-left: auto;
+}

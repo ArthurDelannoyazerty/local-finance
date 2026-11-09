@@ -32,6 +32,7 @@ import {
   type Point,
   type Selection,
 } from "../chart-utils";
+import CopyButton from "./CopyButton";
 import "./Chart.css";
 
 echarts.use([
@@ -57,10 +58,12 @@ export default function Chart({
   option,
   height = 380,
   zoomable = false,
+  copyText,
 }: {
   option: object;
   height?: number;
   zoomable?: boolean;
+  copyText?: string | ((selected: Selection) => string);
 }) {
   const config = option as ChartConfig;
   const instance = useRef<Instance | null>(null);
@@ -156,65 +159,74 @@ export default function Chart({
   };
   return (
     <div className="interactive-chart">
-      {entries.length > 0 && (
-        <div className="chart-legend" aria-label="Légende du graphique">
-          {entries.map((entry) => (
-            <button
-              type="button"
-              key={entry.name}
-              className="chart-legend-item"
-              aria-pressed={selected[entry.name] !== false}
-              title="Clic : masquer / afficher. Double-clic : isoler / tout afficher."
-              onClick={(event) => {
-                if (event.detail > 1) return;
-                beforeClick.current = selected;
-                setSelected((value) => ({
-                  ...value,
-                  [entry.name]: value[entry.name] === false,
-                }));
-              }}
-              onDoubleClick={() =>
-                setSelected(
-                  isolateLegend(names, beforeClick.current, entry.name),
-                )
-              }
-              onKeyDown={(event) => {
-                if (event.shiftKey && event.key === "Enter") {
-                  event.preventDefault();
-                  setSelected(isolateLegend(names, selected, entry.name));
-                }
-              }}
-            >
-              <svg
-                width="26"
-                height="12"
-                viewBox="0 0 26 12"
-                aria-hidden="true"
-              >
-                {entry.line ? (
-                  <line
-                    x1="1"
-                    x2="25"
-                    y1="6"
-                    y2="6"
-                    stroke={entry.color}
-                    strokeWidth="2"
-                    strokeDasharray={entry.dash}
-                  />
-                ) : (
-                  <rect
-                    x="1"
-                    y="1"
-                    width="24"
-                    height="10"
-                    rx="2"
-                    fill={entry.color}
-                  />
-                )}
-              </svg>
-              {entry.name}
-            </button>
-          ))}
+      {(entries.length > 0 || copyText !== undefined) && (
+        <div className="chart-heading">
+          {entries.length > 0 && (
+            <div className="chart-legend" aria-label="Légende du graphique">
+              {entries.map((entry) => (
+                <button
+                  type="button"
+                  key={entry.name}
+                  className="chart-legend-item"
+                  aria-pressed={selected[entry.name] !== false}
+                  title="Clic : masquer / afficher. Double-clic : isoler / tout afficher."
+                  onClick={(event) => {
+                    if (event.detail > 1) return;
+                    beforeClick.current = selected;
+                    setSelected((value) => ({
+                      ...value,
+                      [entry.name]: value[entry.name] === false,
+                    }));
+                  }}
+                  onDoubleClick={() =>
+                    setSelected(
+                      isolateLegend(names, beforeClick.current, entry.name),
+                    )
+                  }
+                  onKeyDown={(event) => {
+                    if (event.shiftKey && event.key === "Enter") {
+                      event.preventDefault();
+                      setSelected(isolateLegend(names, selected, entry.name));
+                    }
+                  }}
+                >
+                  <svg
+                    width="26"
+                    height="12"
+                    viewBox="0 0 26 12"
+                    aria-hidden="true"
+                  >
+                    {entry.line ? (
+                      <line
+                        x1="1"
+                        x2="25"
+                        y1="6"
+                        y2="6"
+                        stroke={entry.color}
+                        strokeWidth="2"
+                        strokeDasharray={entry.dash}
+                      />
+                    ) : (
+                      <rect
+                        x="1"
+                        y="1"
+                        width="24"
+                        height="10"
+                        rx="2"
+                        fill={entry.color}
+                      />
+                    )}
+                  </svg>
+                  {entry.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {copyText !== undefined && (
+            <CopyButton
+              text={typeof copyText === "function" ? copyText(selected) : copyText}
+            />
+          )}
         </div>
       )}
       {canZoom && (

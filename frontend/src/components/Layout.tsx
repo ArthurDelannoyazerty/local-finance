@@ -95,10 +95,6 @@ export default function Layout({
             </div>
           ))}
         </nav>
-        <div className="sidebar-foot">
-          <span className="status-dot" />
-          Données locales · utilisateur unique
-        </div>
       </aside>
       {open && (
         <button

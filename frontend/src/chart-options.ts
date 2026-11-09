@@ -175,7 +175,9 @@ export function chartOption(
         ...(series.type === "line"
           ? { itemStyle: { ...series.itemStyle, color } }
           : {}),
-        ...(series.type === "sankey" ? { draggable: false } : {}),
+        ...(series.type === "sankey"
+          ? { draggable: series.draggable === true }
+          : {}),
         ...(series.type === "treemap"
           ? { roam: false, nodeClick: false, breadcrumb: { show: false } }
           : {}),
