@@ -104,6 +104,7 @@ export function flowChart(
     series: [
       {
         type: "sankey",
+        draggable: !splitEndpoints,
         data: graph.nodes,
         links: graph.links,
         emphasis: { focus: "adjacency" },

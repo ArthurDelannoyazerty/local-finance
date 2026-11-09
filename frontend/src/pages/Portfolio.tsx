@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { api, download, searchParams } from "../api";
+import { portfolioCsv } from "../chart-export";
 import Chart from "../components/Chart";
 import {
   Empty,
@@ -82,6 +83,7 @@ function TradeForm({
         client.invalidateQueries({ queryKey: ["date-bounds"] }),
         client.invalidateQueries({ queryKey: ["flows"] }),
         client.invalidateQueries({ queryKey: ["projection-defaults"] }),
+        client.invalidateQueries({ queryKey: ["ledger-clipboard"] }),
       ]);
       onClose();
     },
@@ -284,6 +286,7 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
         client.invalidateQueries({ queryKey: ["trades"] }),
         client.invalidateQueries({ queryKey: ["portfolio-summary"] }),
         client.invalidateQueries({ queryKey: ["portfolio-evolution"] }),
+        client.invalidateQueries({ queryKey: ["ledger-clipboard"] }),
       ]);
     },
   });
@@ -375,7 +378,6 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
       <PageHeader
         eyebrow="Patrimoine"
         title="Portfolio"
-        description="Valeur nette, historique des comptes et registre complet de vos achats et ventes."
         actions={
           <>
             <button
@@ -479,7 +481,14 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
           ) : evolution.error ? (
             <ErrorBlock error={evolution.error} />
           ) : evolution.data!.items.length ? (
-            <Chart option={chart} height={470} zoomable />
+            <Chart
+              option={chart}
+              height={470}
+              zoomable
+              copyText={(selected) =>
+                portfolioCsv(evolution.data!, mode, selected)
+              }
+            />
           ) : (
             <Empty
               title="Pas encore d’historique"
@@ -491,7 +500,6 @@ export default function Portfolio({ range }: { range: DateRangeValue }) {
       <Panel
         className="panel-flush"
         title="Historique boursier"
-        description="Filtrez, corrigez et exportez les opérations enregistrées dans Local Finance."
         action={
           <>
             <button

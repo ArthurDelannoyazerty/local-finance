@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, searchParams } from "../api";
+import { flowCsv } from "../chart-export";
 import Chart from "../components/Chart";
 import MonthSelector from "../components/MonthSelector";
 import { flowChart, type Sankey } from "../flow-chart";
@@ -48,7 +49,6 @@ export default function Flows() {
       <PageHeader
         eyebrow="Quotidien"
         title="Flux"
-        description="Suivez le chemin de l’argent entre revenus, dépenses, comptes et investissements."
         actions={
           bounds.data && (
             <MonthSelector
@@ -77,10 +77,7 @@ export default function Flows() {
         <ErrorBlock error={query.error} />
       ) : data ? (
         <div className="stack">
-          <Panel
-            title="Revenus → dépenses"
-            description="Une lecture consolidée des catégories sur les mois sélectionnés."
-          >
+          <Panel>
             {data.cash_flow.links.length ? (
               <Chart
                 option={flowChart(data.cash_flow, [
@@ -90,6 +87,7 @@ export default function Flows() {
                   "#f5c66e",
                 ])}
                 height={510}
+                copyText={flowCsv(data.cash_flow)}
               />
             ) : (
               <Empty
@@ -99,10 +97,7 @@ export default function Flows() {
             )}
           </Panel>
           <div className="grid-2">
-            <Panel
-              title="Entre vos comptes"
-              description="Sorties à gauche, entrées à droite. Les deux sens sont conservés, sans compensation."
-            >
+            <Panel title="Entre vos comptes">
               {data.transfers.links.length ? (
                 <Chart
                   option={flowChart(
@@ -111,6 +106,7 @@ export default function Flows() {
                     true,
                   )}
                   height={350}
+                  copyText={flowCsv(data.transfers)}
                 />
               ) : (
                 <Empty
@@ -119,10 +115,7 @@ export default function Flows() {
                 />
               )}
             </Panel>
-            <Panel
-              title="Vers vos actifs"
-              description="Achats et ventes, des sources à gauche vers les destinations à droite."
-            >
+            <Panel title="Vers vos actifs">
               {data.investments.links.length ? (
                 <Chart
                   option={flowChart(
@@ -131,6 +124,7 @@ export default function Flows() {
                     true,
                   )}
                   height={350}
+                  copyText={flowCsv(data.investments)}
                 />
               ) : (
                 <Empty

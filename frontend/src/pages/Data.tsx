@@ -262,7 +262,6 @@ export default function DataPage() {
       <PageHeader
         eyebrow="Système"
         title="Données & comptes"
-        description="Import contrôlé, configuration des soldes d’ouverture et sauvegardes récupérables de votre base locale."
         actions={
           <button
             className="button button-secondary"

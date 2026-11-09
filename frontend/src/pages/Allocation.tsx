@@ -7,6 +7,7 @@ import {
   type AllocationItem,
   type AllocationMode,
 } from "../allocation-data";
+import { allocationCsv } from "../chart-export";
 import { escapeHtml } from "../flow-chart";
 import Chart from "../components/Chart";
 import {
@@ -103,7 +104,6 @@ export default function Allocation() {
       <PageHeader
         eyebrow="Patrimoine"
         title="Allocation"
-        description="Explorez le poids de chaque compte et actif, ou leur performance corrigée des achats et ventes."
         actions={
           <div className="segmented">
             <button
@@ -127,107 +127,115 @@ export default function Allocation() {
           </div>
         }
       />
-      <Panel
-        title="Carte du patrimoine"
-        description={
-          mode === "performance"
-            ? "La performance tient compte des apports et retraits boursiers de la période."
-            : "Survolez un bloc pour afficher le détail de sa valeur."
-        }
-        action={
-          <div className="filters" style={{ margin: 0 }}>
-            {mode === "performance" && (
+      <div className="stack">
+        <Panel
+          title="Carte du patrimoine"
+          description={
+            mode === "performance"
+              ? "La performance tient compte des apports et retraits boursiers de la période."
+              : undefined
+          }
+          action={
+            <div className="filters" style={{ margin: 0 }}>
+              {mode === "performance" && (
+                <div className="field">
+                  <span>Début</span>
+                  <input
+                    className="input"
+                    type="date"
+                    value={start}
+                    max={at}
+                    onChange={(e) => setStart(e.target.value)}
+                  />
+                </div>
+              )}
               <div className="field">
-                <span>Début</span>
+                <span>Situation au</span>
                 <input
                   className="input"
                   type="date"
-                  value={start}
-                  max={at}
-                  onChange={(e) => setStart(e.target.value)}
+                  value={at}
+                  min={mode === "performance" ? start : undefined}
+                  onChange={(e) => setAt(e.target.value)}
                 />
               </div>
-            )}
-            <div className="field">
-              <span>Situation au</span>
-              <input
-                className="input"
-                type="date"
-                value={at}
-                min={mode === "performance" ? start : undefined}
-                onChange={(e) => setAt(e.target.value)}
-              />
             </div>
-          </div>
-        }
-      >
-        {query.isLoading ? (
-          <Loading />
-        ) : query.error ? (
-          <ErrorBlock error={query.error} />
-        ) : items.length ? (
-          <Chart option={option} height={610} />
-        ) : (
-          <Empty
-            title="Aucun actif à cette date"
-            description="Choisissez une date plus récente ou ajoutez des comptes et investissements."
-          />
-        )}
-      </Panel>
-      {items.length > 0 && (
-        <Panel
-          className="panel-flush"
-          title="Détail de la situation"
-          description={`${items.length} positions et soldes`}
+          }
         >
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Compte</th>
-                  <th>Type</th>
-                  <th>Actif</th>
-                  <th className="cell-number">Quantité</th>
-                  <th className="cell-number">Prix</th>
-                  <th className="cell-number">Valeur</th>
-                  {mode === "performance" && (
-                    <th className="cell-number">Performance</th>
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={`${item.account}-${item.ticker}`}>
-                    <td>{item.account}</td>
-                    <td>
-                      <span className="badge">
-                        {item.type === "CASH" ? "Liquidités" : "Investissement"}
-                      </span>
-                    </td>
-                    <td>{item.name}</td>
-                    <td className="cell-number">
-                      {item.quantity.toLocaleString("fr-FR")}
-                    </td>
-                    <td className="cell-number">
-                      {money(item.unit_price, item.currency, 2)}
-                    </td>
-                    <td className="cell-number">
-                      <strong>{money(item.value)}</strong>
-                    </td>
+          {query.isLoading ? (
+            <Loading />
+          ) : query.error ? (
+            <ErrorBlock error={query.error} />
+          ) : items.length ? (
+            <Chart
+              option={option}
+              height={610}
+              copyText={allocationCsv(items, mode, at, start)}
+            />
+          ) : (
+            <Empty
+              title="Aucun actif à cette date"
+              description="Choisissez une date plus récente ou ajoutez des comptes et investissements."
+            />
+          )}
+        </Panel>
+        {items.length > 0 && (
+          <Panel
+            className="panel-flush"
+            title="Détail de la situation"
+            description={`${items.length} positions et soldes`}
+          >
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Compte</th>
+                    <th>Type</th>
+                    <th>Actif</th>
+                    <th className="cell-number">Quantité</th>
+                    <th className="cell-number">Prix</th>
+                    <th className="cell-number">Valeur</th>
                     {mode === "performance" && (
-                      <td
-                        className={`cell-number ${(item.performance_percent ?? 0) >= 0 ? "positive" : "negative"}`}
-                      >
-                        {percent(item.performance_percent)}
-                      </td>
+                      <th className="cell-number">Performance</th>
                     )}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-      )}
+                </thead>
+                <tbody>
+                  {items.map((item) => (
+                    <tr key={`${item.account}-${item.ticker}`}>
+                      <td>{item.account}</td>
+                      <td>
+                        <span className="badge">
+                          {item.type === "CASH"
+                            ? "Liquidités"
+                            : "Investissement"}
+                        </span>
+                      </td>
+                      <td>{item.name}</td>
+                      <td className="cell-number">
+                        {item.quantity.toLocaleString("fr-FR")}
+                      </td>
+                      <td className="cell-number">
+                        {money(item.unit_price, item.currency, 2)}
+                      </td>
+                      <td className="cell-number">
+                        <strong>{money(item.value)}</strong>
+                      </td>
+                      {mode === "performance" && (
+                        <td
+                          className={`cell-number ${(item.performance_percent ?? 0) >= 0 ? "positive" : "negative"}`}
+                        >
+                          {percent(item.performance_percent)}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        )}
+      </div>
     </>
   );
 }
