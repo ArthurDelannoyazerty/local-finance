@@ -381,9 +381,7 @@ def _release_conflicting_source_keys(
             (batch_id, *kinds),
         ).fetchall()
         wrong_owners = [
-            (row["id"],)
-            for row in rows
-            if row["id"] != expected_owners.get(row["source_key"])
+            (row["id"],) for row in rows if row["id"] != expected_owners.get(row["source_key"])
         ]
         if wrong_owners:
             connection.executemany(
