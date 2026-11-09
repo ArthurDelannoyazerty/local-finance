@@ -344,6 +344,54 @@ def _stage_rows(
     return dict(staged)
 
 
+def _release_conflicting_source_keys(
+    connection: sqlite3.Connection,
+    batch_id: str,
+    staged: dict[str, dict[str, dict[str, Any]]],
+    existing: dict[str, dict[str, dict[str, Any]]],
+) -> None:
+    """Release previously assigned source keys before reassigning them.
+
+    Staged occurrences follow workbook order, while existing occurrences are
+    reconstructed in date/id order. When those differ for duplicate operations,
+    an unchanged row may need a key currently owned by another row. SQLite
+    checks the unique index on every UPDATE, so swaps must release old owners
+    first. Stale keys on edited rows can also block new insertions.
+    """
+    for table, kinds in (
+        ("transactions", ("INCOME", "EXPENSE")),
+        ("transfers", ("TRANSFER",)),
+    ):
+        expected_owners = {
+            key: existing.get(kind, {}).get(key, {}).get("id")
+            for kind in kinds
+            for key in staged.get(kind, {})
+        }
+        if not expected_owners:
+            continue
+
+        kind_placeholders = ", ".join("?" for _ in kinds)
+        rows = connection.execute(
+            f"""
+            SELECT ledger.id, ledger.source_key
+            FROM import_rows AS incoming
+            JOIN {table} AS ledger ON ledger.source_key = incoming.source_key
+            WHERE incoming.batch_id = ? AND incoming.kind IN ({kind_placeholders})
+            """,
+            (batch_id, *kinds),
+        ).fetchall()
+        wrong_owners = [
+            (row["id"],)
+            for row in rows
+            if row["id"] != expected_owners.get(row["source_key"])
+        ]
+        if wrong_owners:
+            connection.executemany(
+                f"UPDATE {table} SET source_key = NULL WHERE id = ?",
+                wrong_owners,
+            )
+
+
 def apply_import_preview(
     batch_id: str,
     *,
@@ -368,6 +416,8 @@ def apply_import_preview(
             raise StaleImportPreview(
                 "The ledger changed after this preview. Create a new preview before importing."
             )
+
+        _release_conflicting_source_keys(connection, batch_id, staged, existing)
 
         applied = {"added": 0, "removed": 0, "unchanged": 0, "deletions_skipped": 0}
         now = utc_now()
