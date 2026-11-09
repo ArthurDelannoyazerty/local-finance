@@ -179,10 +179,7 @@ def test_reimport_with_reversed_duplicate_key_owners_succeeds(
         stored = connection.execute(
             f"SELECT id, source_key, source_occurrence FROM {table} ORDER BY id"
         ).fetchall()
-        keys = {
-            row["source_occurrence"]: row["source_key"]
-            for row in stored
-        }
+        keys = {row["source_occurrence"]: row["source_key"] for row in stored}
         connection.execute(f"UPDATE {table} SET source_key = NULL")
         connection.execute(
             f"UPDATE {table} SET source_key = ? WHERE id = ?",
